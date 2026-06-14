@@ -1,0 +1,147 @@
+#sound-system {
+  position: fixed;
+  z-index: 100000;
+  color: #f2e4c7;
+  font-family: var(--font-primary);
+}
+
+#sound-system .ss-window {
+  width: 900px;
+  height: 650px;
+  background: rgba(18, 16, 13, 0.97);
+  border: 1px solid #8b6f3d;
+  border-radius: 10px;
+  box-shadow: 0 0 25px #000;
+  overflow: hidden;
+}
+
+#sound-system .ss-header {
+  padding: 10px;
+  background: rgba(80, 55, 25, 0.85);
+  display: flex;
+  justify-content: space-between;
+  cursor: move;
+}
+
+#sound-system .ss-close {
+  background: none;
+  border: none;
+  color: #f2e4c7;
+  font-size: 22px;
+  cursor: pointer;
+}
+
+#sound-system .ss-main {
+  display: grid;
+  grid-template-columns: 230px 1fr 260px;
+  height: calc(100% - 43px);
+}
+
+#sound-system aside,
+#sound-system section {
+  padding: 10px;
+  overflow-y: auto;
+}
+
+#sound-system .ss-tree {
+  border-right: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+#sound-system .ss-playing {
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.18);
+}
+
+#sound-system .ss-search {
+  width: 100%;
+  padding: 8px;
+  margin-bottom: 10px;
+  background: #111;
+  color: white;
+  border: 1px solid #8b6f3d;
+  border-radius: 6px;
+}
+
+#sound-system .ss-playlist {
+  padding: 6px;
+  cursor: pointer;
+  border-radius: 5px;
+  margin-bottom: 3px;
+  border: 1px solid transparent;
+}
+
+#sound-system .ss-playlist:hover,
+#sound-system .ss-playlist.active {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+#sound-system .ss-playlist.drag-target {
+  background: rgba(255, 215, 0, 0.2);
+  border-color: gold;
+}
+
+#sound-system .ss-row,
+#sound-system .ss-now-row {
+  display: grid;
+  grid-template-columns: 30px 30px 30px 1fr;
+  gap: 6px;
+  align-items: center;
+  padding: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+#sound-system .ss-row:hover,
+#sound-system .ss-now-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+#sound-system .ss-now-row {
+  grid-template-columns: 30px 1fr;
+}
+
+#sound-system .ss-btn {
+  cursor: pointer;
+  width: 28px;
+  height: 26px;
+  padding: 0;
+}
+
+#sound-system .ss-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#sound-system .ss-sub {
+  font-size: 11px;
+  opacity: 0.65;
+}
+
+#sound-system .ss-empty {
+  opacity: 0.65;
+  font-style: italic;
+}
+
+#sound-system input[type="range"] {
+  width: 100%;
+}
+
+#sound-system-launcher {
+  position: fixed;
+  right: 18px;
+  bottom: 90px;
+  z-index: 99999;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 1px solid #8b6f3d;
+  background: rgba(18, 16, 13, 0.95);
+  color: #f2e4c7;
+  font-size: 20px;
+  cursor: pointer;
+  box-shadow: 0 0 12px #000;
+}
+
+#sound-system-launcher:hover {
+  filter: brightness(1.2);
+}
