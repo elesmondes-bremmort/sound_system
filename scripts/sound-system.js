@@ -1,6 +1,7 @@
 const SOUND_SYSTEM_MODULE_ID = "sound_system";
 const SOUND_SYSTEM_ID = "sound-system";
 const SOUND_SYSTEM_POSITION_SETTING = "windowPosition";
+const SOUND_SYSTEM_STORAGE_KEY = "sound-system-window-state";
 
 Hooks.once("init", () => {
   game.settings.register(SOUND_SYSTEM_MODULE_ID, SOUND_SYSTEM_POSITION_SETTING, {
@@ -20,6 +21,40 @@ Hooks.once("init", () => {
 class SoundSystem {
   static instance = null;
 
+loadPosition() {
+  const fallback = {
+    top: 80,
+    left: 100,
+    width: 980,
+    height: 680
+  };
+
+  try {
+    const saved = JSON.parse(localStorage.getItem(SOUND_SYSTEM_STORAGE_KEY));
+    return saved ? { ...fallback, ...saved } : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+savePosition() {
+  if (!this.win) return;
+
+  const rect = this.win.getBoundingClientRect();
+
+  this.position = {
+    top: Math.round(rect.top),
+    left: Math.round(rect.left),
+    width: Math.round(rect.width),
+    height: Math.round(rect.height)
+  };
+
+  localStorage.setItem(
+    SOUND_SYSTEM_STORAGE_KEY,
+    JSON.stringify(this.position)
+  );
+}
+
 static open() {
   if (!game.user.isGM) return;
 
@@ -33,19 +68,10 @@ static open() {
 }
 
   constructor() {
-    this.selectedPlaylistId = null;
+  this.selectedPlaylistId = null;
 
-    this.position = foundry.utils.mergeObject(
-      {
-        top: 80,
-        left: 100,
-        width: 980,
-        height: 680
-      },
-      game.settings.get(SOUND_SYSTEM_MODULE_ID, SOUND_SYSTEM_POSITION_SETTING) ?? {},
-      { inplace: false }
-    );
-  }
+  this.position = this.loadPosition();
+}
 
   get allEntries() {
     return game.playlists.contents.flatMap(playlist =>
@@ -115,12 +141,12 @@ static open() {
     await game.settings.set(SOUND_SYSTEM_MODULE_ID, SOUND_SYSTEM_POSITION_SETTING, this.position);
   }
 
-  async close() {
-  await this.savePosition();
+close() {
+  this.savePosition();
   document.getElementById(SOUND_SYSTEM_ID)?.remove();
   this.removeContextMenu();
   SoundSystem.instance = null;
- }
+}
 
   renderAll() {
     this.renderTree();
@@ -501,22 +527,26 @@ static open() {
       this.win.style.top = `${top}px`;
     });
 
-    document.addEventListener("mouseup", async () => {
-      if (!dragging) return;
-      dragging = false;
-      await this.savePosition();
-    });
+    document.addEventListener("mouseup", () => {
+        if (!dragging) return;
+
+        dragging = false;
+        this.savePosition();
+        });
   }
 
   activateResizeObserver() {
     let timeout = null;
 
-    const observer = new ResizeObserver(() => {
-      clearTimeout(timeout);
-      timeout = setTimeout(() => this.savePosition(), 300);
-    });
+  const observer = new ResizeObserver(() => {
+    clearTimeout(timeout);
 
-    observer.observe(this.win);
+    timeout = setTimeout(() => {
+      this.savePosition();
+    }, 150);
+  });
+
+  observer.observe(this.win);
   }
 
   getRowData(row) {
