@@ -126,20 +126,6 @@ static open() {
     this.search.focus();
   }
 
-  async savePosition() {
-    if (!this.win) return;
-
-    const rect = this.win.getBoundingClientRect();
-
-    this.position = {
-      top: Math.round(rect.top),
-      left: Math.round(rect.left),
-      width: Math.round(rect.width),
-      height: Math.round(rect.height)
-    };
-
-    await game.settings.set(SOUND_SYSTEM_MODULE_ID, SOUND_SYSTEM_POSITION_SETTING, this.position);
-  }
 
 close() {
   this.savePosition();
