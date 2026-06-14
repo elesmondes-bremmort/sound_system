@@ -5,8 +5,8 @@
   font-family: var(--font-primary);
   resize: both;
   overflow: hidden;
-  min-width: 720px;
-  min-height: 460px;
+  min-width: 520px;
+  min-height: 320px;
 }
 
 #sound-system .ss-window {
@@ -37,7 +37,7 @@
 
 #sound-system .ss-main {
   display: grid;
-  grid-template-columns: 230px 1fr 260px;
+  grid-template-columns: minmax(160px, 230px) minmax(240px, 1fr) minmax(180px, 260px);
   height: calc(100% - 43px);
 }
 

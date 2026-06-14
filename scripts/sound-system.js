@@ -115,12 +115,12 @@ static open() {
     await game.settings.set(SOUND_SYSTEM_MODULE_ID, SOUND_SYSTEM_POSITION_SETTING, this.position);
   }
 
-  close() {
-    this.savePosition();
-    document.getElementById(SOUND_SYSTEM_ID)?.remove();
-    this.removeContextMenu();
-    SoundSystem.instance = null;
-  }
+  async close() {
+  await this.savePosition();
+  document.getElementById(SOUND_SYSTEM_ID)?.remove();
+  this.removeContextMenu();
+  SoundSystem.instance = null;
+ }
 
   renderAll() {
     this.renderTree();
@@ -205,7 +205,9 @@ static open() {
   }
 
   activateListeners() {
-    this.win.querySelector(".ss-close").addEventListener("click", () => this.close());
+    this.win.querySelector(".ss-close").addEventListener("click", async () => {
+    await this.close();
+    });
 
     this.tree.addEventListener("click", async ev => {
       if (ev.target.classList.contains("ss-create-playlist")) {
