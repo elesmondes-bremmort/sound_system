@@ -285,8 +285,6 @@ class SoundSystem {
       await targetPlaylist.createEmbeddedDocuments("PlaylistSound", [data]);
       await sourcePlaylist.deleteEmbeddedDocuments("PlaylistSound", [sound.id]);
 
-      ui.notifications.info(`${sound.name} déplacé vers ${targetPlaylist.name}`);
-
       this.renderAll();
     });
 
@@ -346,7 +344,7 @@ Hooks.once("ready", () => {
 
   const button = document.createElement("button");
   button.id = "sound-system-launcher";
-  button.innerHTML = "🎚️";
+  button.innerHTML = "🎵";
   button.title = "Sound System";
   button.addEventListener("click", () => SoundSystem.open());
 
