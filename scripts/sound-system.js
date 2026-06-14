@@ -1,21 +1,50 @@
+const SOUND_SYSTEM_MODULE_ID = "sound_system";
 const SOUND_SYSTEM_ID = "sound-system";
+const SOUND_SYSTEM_POSITION_SETTING = "windowPosition";
+
+Hooks.once("init", () => {
+  game.settings.register(SOUND_SYSTEM_MODULE_ID, SOUND_SYSTEM_POSITION_SETTING, {
+    name: "Sound System window position",
+    scope: "client",
+    config: false,
+    type: Object,
+    default: {
+      top: 80,
+      left: 100,
+      width: 980,
+      height: 680
+    }
+  });
+});
 
 class SoundSystem {
   static instance = null;
 
-  static open() {
-    if (this.instance) {
-      this.instance.close();
-      return;
-    }
+static open() {
+  if (!game.user.isGM) return;
 
-    this.instance = new SoundSystem();
-    this.instance.render();
+  if (this.instance) {
+    this.instance.close();
+    return;
   }
+
+  this.instance = new SoundSystem();
+  this.instance.render();
+}
 
   constructor() {
     this.selectedPlaylistId = null;
-    this.position = { top: 80, left: 100, width: 980, height: 680 };
+
+    this.position = foundry.utils.mergeObject(
+      {
+        top: 80,
+        left: 100,
+        width: 980,
+        height: 680
+      },
+      game.settings.get(SOUND_SYSTEM_MODULE_ID, SOUND_SYSTEM_POSITION_SETTING) ?? {},
+      { inplace: false }
+    );
   }
 
   get allEntries() {
@@ -71,7 +100,23 @@ class SoundSystem {
     this.search.focus();
   }
 
+  async savePosition() {
+    if (!this.win) return;
+
+    const rect = this.win.getBoundingClientRect();
+
+    this.position = {
+      top: Math.round(rect.top),
+      left: Math.round(rect.left),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height)
+    };
+
+    await game.settings.set(SOUND_SYSTEM_MODULE_ID, SOUND_SYSTEM_POSITION_SETTING, this.position);
+  }
+
   close() {
+    this.savePosition();
     document.getElementById(SOUND_SYSTEM_ID)?.remove();
     this.removeContextMenu();
     SoundSystem.instance = null;
@@ -187,23 +232,10 @@ class SoundSystem {
       const playlist = item?.dataset.id ? game.playlists.get(item.dataset.id) : null;
 
       this.showContextMenu(ev.clientX, ev.clientY, [
-        {
-          label: "➕ Nouvelle playlist",
-          action: () => this.createPlaylist(false)
-        },
-        {
-          label: "🎛️ Nouveau soundboard",
-          action: () => this.createPlaylist(true)
-        },
-        playlist && {
-          label: "✏️ Renommer",
-          action: () => this.renamePlaylist(playlist)
-        },
-        playlist && {
-          label: "🗑️ Supprimer",
-          danger: true,
-          action: () => this.deletePlaylist(playlist)
-        }
+        { label: "➕ Nouvelle playlist", action: () => this.createPlaylist(false) },
+        { label: "🎛️ Nouveau soundboard", action: () => this.createPlaylist(true) },
+        playlist && { label: "✏️ Renommer", action: () => this.renamePlaylist(playlist) },
+        playlist && { label: "🗑️ Supprimer", danger: true, action: () => this.deletePlaylist(playlist) }
       ].filter(Boolean));
     });
 
@@ -219,29 +251,10 @@ class SoundSystem {
       if (!playlist || !sound) return;
 
       this.showContextMenu(ev.clientX, ev.clientY, [
-        {
-          label: "▶ Jouer",
-          action: async () => {
-            await playlist.playSound(sound);
-            this.renderAll();
-          }
-        },
-        {
-          label: "■ Arrêter",
-          action: async () => {
-            await playlist.stopSound(sound);
-            this.renderAll();
-          }
-        },
-        {
-          label: "✏️ Renommer",
-          action: () => this.renameSound(sound)
-        },
-        {
-          label: "🗑️ Supprimer",
-          danger: true,
-          action: () => this.deleteSound(sound)
-        }
+        { label: "▶ Jouer", action: async () => { await playlist.playSound(sound); this.renderAll(); } },
+        { label: "■ Arrêter", action: async () => { await playlist.stopSound(sound); this.renderAll(); } },
+        { label: "✏️ Renommer", action: () => this.renameSound(sound) },
+        { label: "🗑️ Supprimer", danger: true, action: () => this.deleteSound(sound) }
       ]);
     });
 
@@ -484,21 +497,21 @@ class SoundSystem {
 
       this.win.style.left = `${left}px`;
       this.win.style.top = `${top}px`;
-
-      this.position.left = left;
-      this.position.top = top;
     });
 
-    document.addEventListener("mouseup", () => {
+    document.addEventListener("mouseup", async () => {
+      if (!dragging) return;
       dragging = false;
+      await this.savePosition();
     });
   }
 
   activateResizeObserver() {
-    const observer = new ResizeObserver(entries => {
-      const rect = entries[0].contentRect;
-      this.position.width = rect.width;
-      this.position.height = rect.height;
+    let timeout = null;
+
+    const observer = new ResizeObserver(() => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => this.savePosition(), 300);
     });
 
     observer.observe(this.win);
@@ -521,6 +534,8 @@ class SoundSystem {
 }
 
 Hooks.once("ready", () => {
+  if (!game.user.isGM) return;
+
   document.getElementById("sound-system-launcher")?.remove();
 
   const button = document.createElement("button");

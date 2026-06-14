@@ -1,6 +1,6 @@
 #sound-system {
   position: fixed;
-  z-index: 100000;
+  z-index: 50;
   color: #f2e4c7;
   font-family: var(--font-primary);
   resize: both;
@@ -150,7 +150,7 @@
   position: fixed;
   right: 18px;
   bottom: 220px;
-  z-index: 99999;
+  z-index: 60;
   width: 42px;
   height: 42px;
   border-radius: 50%;
@@ -168,7 +168,7 @@
 
 .ss-context-menu {
   position: fixed;
-  z-index: 200000;
+  z-index: 100;
   min-width: 190px;
   background: rgba(18, 16, 13, 0.98);
   border: 1px solid #8b6f3d;
