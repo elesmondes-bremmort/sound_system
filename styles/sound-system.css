@@ -3,11 +3,15 @@
   z-index: 100000;
   color: #f2e4c7;
   font-family: var(--font-primary);
+  resize: both;
+  overflow: hidden;
+  min-width: 720px;
+  min-height: 460px;
 }
 
 #sound-system .ss-window {
-  width: 900px;
-  height: 650px;
+  width: 100%;
+  height: 100%;
   background: rgba(18, 16, 13, 0.97);
   border: 1px solid #8b6f3d;
   border-radius: 10px;
@@ -50,6 +54,22 @@
 #sound-system .ss-playing {
   border-left: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(0, 0, 0, 0.18);
+}
+
+#sound-system .ss-tree-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 5px;
+  margin-bottom: 10px;
+}
+
+#sound-system .ss-tree-actions button {
+  padding: 5px;
+  border: 1px solid #8b6f3d;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #f2e4c7;
+  cursor: pointer;
 }
 
 #sound-system .ss-search {
@@ -137,11 +157,42 @@
   border: 1px solid #8b6f3d;
   background: rgba(18, 16, 13, 0.95);
   color: #f2e4c7;
-  font-size: 20px;
+  font-size: 22px;
   cursor: pointer;
   box-shadow: 0 0 12px #000;
 }
 
 #sound-system-launcher:hover {
   filter: brightness(1.2);
+}
+
+.ss-context-menu {
+  position: fixed;
+  z-index: 200000;
+  min-width: 190px;
+  background: rgba(18, 16, 13, 0.98);
+  border: 1px solid #8b6f3d;
+  border-radius: 8px;
+  box-shadow: 0 0 18px #000;
+  padding: 5px;
+}
+
+.ss-context-menu button {
+  display: block;
+  width: 100%;
+  padding: 7px 9px;
+  text-align: left;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: #f2e4c7;
+  cursor: pointer;
+}
+
+.ss-context-menu button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.ss-context-menu button.danger {
+  color: #ff8b8b;
 }
