@@ -1,81 +1,97 @@
-const SOUND_SYSTEM_MODULE_ID = "sound_system";
 const SOUND_SYSTEM_ID = "sound-system";
-const SOUND_SYSTEM_POSITION_SETTING = "windowPosition";
 const SOUND_SYSTEM_STORAGE_KEY = "sound-system-window-state";
-
-Hooks.once("init", () => {
-  game.settings.register(SOUND_SYSTEM_MODULE_ID, SOUND_SYSTEM_POSITION_SETTING, {
-    name: "Sound System window position",
-    scope: "client",
-    config: false,
-    type: Object,
-    default: {
-      top: 80,
-      left: 100,
-      width: 980,
-      height: 680
-    }
-  });
-});
 
 class SoundSystem {
   static instance = null;
 
-loadPosition() {
-  const fallback = {
-    top: 80,
-    left: 100,
-    width: 980,
-    height: 680
-  };
+  static open() {
+    if (!game.user.isGM) return;
 
-  try {
-    const saved = JSON.parse(localStorage.getItem(SOUND_SYSTEM_STORAGE_KEY));
-    return saved ? { ...fallback, ...saved } : fallback;
-  } catch {
-    return fallback;
+    if (this.instance) {
+      this.instance.close();
+      return;
+    }
+
+    this.instance = new SoundSystem();
+    this.instance.render();
   }
-}
-
-savePosition() {
-  if (!this.win) return;
-
-  const rect = this.win.getBoundingClientRect();
-
-  this.position = {
-    top: Math.round(rect.top),
-    left: Math.round(rect.left),
-    width: Math.round(rect.width),
-    height: Math.round(rect.height)
-  };
-
-  localStorage.setItem(
-    SOUND_SYSTEM_STORAGE_KEY,
-    JSON.stringify(this.position)
-  );
-}
-
-static open() {
-  if (!game.user.isGM) return;
-
-  if (this.instance) {
-    this.instance.close();
-    return;
-  }
-
-  this.instance = new SoundSystem();
-  this.instance.render();
-}
 
   constructor() {
-  this.selectedPlaylistId = null;
-
-  this.position = this.loadPosition();
-}
+    this.selectedPlaylistId = null;
+    this.contextMenu = null;
+    this.resizeObserver = null;
+    this.position = this.loadPosition();
+  }
 
   get allEntries() {
     return game.playlists.contents.flatMap(playlist =>
       playlist.sounds.contents.map(sound => ({ playlist, sound }))
+    );
+  }
+
+  loadPosition() {
+    const fallback = {
+      top: 80,
+      left: 100,
+      width: 980,
+      height: 680
+    };
+
+    try {
+      const saved = JSON.parse(localStorage.getItem(SOUND_SYSTEM_STORAGE_KEY));
+
+      if (
+        !saved ||
+        !Number.isFinite(saved.top) ||
+        !Number.isFinite(saved.left) ||
+        !Number.isFinite(saved.width) ||
+        !Number.isFinite(saved.height) ||
+        saved.width < 300 ||
+        saved.height < 200 ||
+        saved.left < 0 ||
+        saved.top < 0
+      ) {
+        localStorage.removeItem(SOUND_SYSTEM_STORAGE_KEY);
+        return fallback;
+      }
+
+      return { ...fallback, ...saved };
+    } catch {
+      localStorage.removeItem(SOUND_SYSTEM_STORAGE_KEY);
+      return fallback;
+    }
+  }
+
+  savePosition() {
+    if (!this.win || !document.body.contains(this.win)) return;
+
+    const rect = this.win.getBoundingClientRect();
+
+    const nextPosition = {
+      top: Math.round(rect.top),
+      left: Math.round(rect.left),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height)
+    };
+
+    if (
+      !Number.isFinite(nextPosition.top) ||
+      !Number.isFinite(nextPosition.left) ||
+      !Number.isFinite(nextPosition.width) ||
+      !Number.isFinite(nextPosition.height) ||
+      nextPosition.width < 300 ||
+      nextPosition.height < 200 ||
+      nextPosition.left < 0 ||
+      nextPosition.top < 0
+    ) {
+      return;
+    }
+
+    this.position = nextPosition;
+
+    localStorage.setItem(
+      SOUND_SYSTEM_STORAGE_KEY,
+      JSON.stringify(this.position)
     );
   }
 
@@ -126,13 +142,19 @@ static open() {
     this.search.focus();
   }
 
+  close() {
+    this.savePosition();
 
-close() {
-  this.savePosition();
-  document.getElementById(SOUND_SYSTEM_ID)?.remove();
-  this.removeContextMenu();
-  SoundSystem.instance = null;
-}
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
+    }
+
+    document.getElementById(SOUND_SYSTEM_ID)?.remove();
+    this.removeContextMenu();
+
+    SoundSystem.instance = null;
+  }
 
   renderAll() {
     this.renderTree();
@@ -217,9 +239,7 @@ close() {
   }
 
   activateListeners() {
-    this.win.querySelector(".ss-close").addEventListener("click", async () => {
-    await this.close();
-    });
+    this.win.querySelector(".ss-close").addEventListener("click", () => this.close());
 
     this.tree.addEventListener("click", async ev => {
       if (ev.target.classList.contains("ss-create-playlist")) {
@@ -265,10 +285,29 @@ close() {
       if (!playlist || !sound) return;
 
       this.showContextMenu(ev.clientX, ev.clientY, [
-        { label: "▶ Jouer", action: async () => { await playlist.playSound(sound); this.renderAll(); } },
-        { label: "■ Arrêter", action: async () => { await playlist.stopSound(sound); this.renderAll(); } },
-        { label: "✏️ Renommer", action: () => this.renameSound(sound) },
-        { label: "🗑️ Supprimer", danger: true, action: () => this.deleteSound(sound) }
+        {
+          label: "▶ Jouer",
+          action: async () => {
+            await playlist.playSound(sound);
+            this.renderAll();
+          }
+        },
+        {
+          label: "■ Arrêter",
+          action: async () => {
+            await playlist.stopSound(sound);
+            this.renderAll();
+          }
+        },
+        {
+          label: "✏️ Renommer",
+          action: () => this.renameSound(sound)
+        },
+        {
+          label: "🗑️ Supprimer",
+          danger: true,
+          action: () => this.deleteSound(sound)
+        }
       ]);
     });
 
@@ -514,25 +553,25 @@ close() {
     });
 
     document.addEventListener("mouseup", () => {
-        if (!dragging) return;
+      if (!dragging) return;
 
-        dragging = false;
-        this.savePosition();
-        });
+      dragging = false;
+      this.savePosition();
+    });
   }
 
   activateResizeObserver() {
     let timeout = null;
 
-  const observer = new ResizeObserver(() => {
-    clearTimeout(timeout);
+    this.resizeObserver = new ResizeObserver(() => {
+      clearTimeout(timeout);
 
-    timeout = setTimeout(() => {
-      this.savePosition();
-    }, 150);
-  });
+      timeout = setTimeout(() => {
+        this.savePosition();
+      }, 200);
+    });
 
-  observer.observe(this.win);
+    this.resizeObserver.observe(this.win);
   }
 
   getRowData(row) {
