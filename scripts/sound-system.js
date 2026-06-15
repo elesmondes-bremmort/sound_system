@@ -1286,15 +1286,31 @@ class SoundSystem {
 Hooks.once("ready", () => {
   if (!game.user.isGM) return;
 
-  document.getElementById("sound-system-launcher")?.remove();
+  function addLauncher() {
+    try {
+      if (!game.user.isGM) return;
+      document.getElementById("sound-system-launcher")?.remove();
 
-  const button = document.createElement("button");
-  button.id = "sound-system-launcher";
-  button.innerHTML = "🎵";
-  button.title = "Sound System";
-  button.addEventListener("click", () => SoundSystem.open());
+      const button = document.createElement("button");
+      button.id = "sound-system-launcher";
+      button.innerHTML = "🎵";
+      button.title = "Sound System";
+      button.style.position = "fixed";
+      button.style.right = "18px";
+      button.style.bottom = "220px";
+      button.style.zIndex = 60;
+      button.addEventListener("click", () => SoundSystem.open());
 
-  document.body.appendChild(button);
+      document.body.appendChild(button);
+    } catch (err) {
+      // silent
+    }
+  }
+
+  addLauncher();
+
+  // Recreate launcher if the application re-renders or DOM changes
+  Hooks.on("renderApplication", () => addLauncher());
 
   game.soundSystem = {
     open: () => SoundSystem.open()
