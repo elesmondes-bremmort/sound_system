@@ -139,7 +139,7 @@
 #sound-system .ss-row,
 #sound-system .ss-now-row {
   display: grid;
-  grid-template-columns: 30px 30px 30px 1fr;
+  grid-template-columns: 30px 30px 30px 30px minmax(0, 1fr);
   gap: 6px;
   align-items: center;
   padding: 6px;
@@ -219,6 +219,16 @@
 }
 
 #sound-system .ss-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  white-space: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#sound-system .ss-name > span {
+  display: block;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
