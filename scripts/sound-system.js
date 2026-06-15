@@ -167,6 +167,7 @@ class SoundSystem {
       <div class="ss-tree-actions">
         <button class="ss-create-playlist">+ Playlist</button>
         <button class="ss-create-soundboard">+ Soundboard</button>
+        <button class="ss-import-sound">Importer un son</button>
       </div>
 
       <div class="ss-playlist ${!this.selectedPlaylistId ? "active" : ""}" data-id="">
@@ -220,13 +221,17 @@ class SoundSystem {
 
   renderNowPlaying() {
     const playing = this.allEntries.filter(({ sound }) => sound.playing);
-
     this.playingTitle.innerHTML = `<b>En cours (${playing.length})</b>`;
+
+    if (playing.length) {
+      this.playingTitle.innerHTML += ` <button class="ss-btn stop-all" title="Tout arrêter">■ Tout arrêter</button>`;
+    }
 
     this.now.innerHTML = playing.length
       ? playing.map(({ playlist, sound }) => `
         <div class="ss-now-row" data-playlist="${playlist.id}" data-sound="${sound.id}">
           <button class="ss-btn stop" title="Arrêter">■</button>
+          <button class="ss-btn loop" title="Boucle">${sound.repeat ? "🔁" : "↻"}</button>
 
           <div>
             <div class="ss-name">${this.escape(sound.name)}</div>
@@ -249,6 +254,11 @@ class SoundSystem {
 
       if (ev.target.classList.contains("ss-create-soundboard")) {
         await this.createPlaylist(true);
+        return;
+      }
+
+      if (ev.target.classList.contains("ss-import-sound")) {
+        await this.importSound();
         return;
       }
 
@@ -345,6 +355,17 @@ class SoundSystem {
 
       if (ev.target.classList.contains("stop")) {
         await playlist.stopSound(sound);
+        this.renderAll();
+      }
+      if (ev.target.classList.contains("loop")) {
+        await sound.update({ repeat: !sound.repeat });
+        this.renderAll();
+      }
+    });
+
+    this.playingTitle.addEventListener("click", async ev => {
+      if (ev.target.classList.contains("stop-all")) {
+        await this.stopAllSounds();
         this.renderAll();
       }
     });
@@ -572,6 +593,86 @@ class SoundSystem {
     });
 
     this.resizeObserver.observe(this.win);
+  }
+
+  async stopAllSounds() {
+    const playing = this.allEntries.filter(({ sound }) => sound.playing);
+
+    for (const { playlist, sound } of playing) {
+      try {
+        await playlist.stopSound(sound);
+      } catch {}
+    }
+  }
+
+  getDefaultPlaylistId() {
+    if (this.selectedPlaylistId) return this.selectedPlaylistId;
+    const first = game.playlists.contents[0];
+    return first ? first.id : null;
+  }
+
+  getCleanFileName(path) {
+    try {
+      const parts = String(path).split(/\//).filter(Boolean);
+      let name = parts.length ? parts[parts.length - 1] : path;
+      name = decodeURIComponent(name);
+      name = name.replace(/\.[^.]+$/, "");
+      name = name.replace(/[_\-]+/g, " ").replace(/\s+/g, " ").trim();
+      name = name.replace(/^\d+\s*-?\s*/, "");
+      return name || "Nouveau Son";
+    } catch {
+      return "Nouveau Son";
+    }
+  }
+
+  async importSound() {
+    const playlists = game.playlists.contents;
+    if (!playlists.length) {
+      ui.notifications?.error("Aucune playlist disponible pour l'import.");
+      return;
+    }
+
+    const html = `
+      <form>
+        <div class="form-group">
+          <label>Playlist cible</label>
+          <select name="playlist">
+            ${playlists.map(p => `<option value="${p.id}" ${this.selectedPlaylistId === p.id ? 'selected' : ''}>${this.escape(p.name)}</option>`).join("")}
+          </select>
+        </div>
+      </form>
+    `;
+
+    const choice = await Dialog.prompt({
+      title: "Importer un son",
+      content: html,
+      callback: el => el.find("select[name='playlist']").val()
+    });
+
+    if (!choice) return;
+    const targetId = choice;
+
+    try {
+      new FilePicker({
+        type: "audio",
+        callback: async path => {
+          try {
+            const playlist = game.playlists.get(targetId);
+            if (!playlist) throw new Error("Playlist introuvable");
+
+            const name = this.getCleanFileName(path);
+
+            await playlist.createEmbeddedDocuments("PlaylistSound", [{ name, path }]);
+            ui.notifications?.info("Son importé avec succès.");
+            this.renderAll();
+          } catch (err) {
+            ui.notifications?.error("Erreur lors de l'import du son.");
+          }
+        }
+      }).render(true);
+    } catch (err) {
+      ui.notifications?.error("Impossible d'ouvrir le sélecteur de fichiers.");
+    }
   }
 
   getRowData(row) {
