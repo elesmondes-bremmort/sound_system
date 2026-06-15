@@ -1283,12 +1283,23 @@ class SoundSystem {
   }
 }
 
+Hooks.once("init", () => {
+  console.log("sound_system: init hook");
+});
+
 Hooks.once("ready", () => {
-  if (!game.user.isGM) return;
+  console.log("sound_system: ready hook");
+  if (!game.user.isGM) {
+    console.log("sound_system: not GM, launcher disabled");
+    return;
+  }
 
   function addLauncher() {
     try {
-      if (!game.user.isGM) return;
+      if (!game.user.isGM) {
+        console.log("sound_system: addLauncher skipped, not GM");
+        return;
+      }
       document.getElementById("sound-system-launcher")?.remove();
 
       const button = document.createElement("button");
@@ -1299,17 +1310,20 @@ Hooks.once("ready", () => {
       button.style.right = "18px";
       button.style.bottom = "220px";
       button.style.zIndex = 60;
-      button.addEventListener("click", () => SoundSystem.open());
+      button.addEventListener("click", () => {
+        console.log("sound_system: launcher clicked");
+        SoundSystem.open();
+      });
 
       document.body.appendChild(button);
+      console.log("sound_system: launcher appended");
     } catch (err) {
-      // silent
+      console.error("sound_system: addLauncher error", err);
     }
   }
 
   addLauncher();
 
-  // Recreate launcher if the application re-renders or DOM changes
   Hooks.on("renderApplication", () => addLauncher());
 
   game.soundSystem = {
