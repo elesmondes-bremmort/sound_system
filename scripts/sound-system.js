@@ -330,6 +330,8 @@ class SoundSystem {
       if (!item) return;
 
       this.selectedPlaylistId = item.dataset.id || null;
+      this.selectedSoundKeys.clear();
+      this.lastSelectedIndex = -1;
       this.renderAll();
     });
 
@@ -358,7 +360,10 @@ class SoundSystem {
       ].filter(Boolean));
     });
 
-    this.search.addEventListener("input", () => this.renderResults());
+    this.search.addEventListener("input", () => {
+      this.selectedSoundKeys.clear();
+      this.renderResults();
+    });
 
     this.results.addEventListener("contextmenu", ev => {
       ev.preventDefault();
@@ -517,9 +522,16 @@ class SoundSystem {
       const target = ev.target.closest(".ss-row, .ss-pad");
       if (!target) return;
 
+      const key = `${target.dataset.playlist}:${target.dataset.sound}`;
+      
+      // Si le son dragué est sélectionné, on déplace tous les sélectionnés
+      // Sinon, on déplace juste celui-ci
+      const toMove = this.selectedSoundKeys.has(key) 
+        ? Array.from(this.selectedSoundKeys)
+        : [key];
+
       ev.dataTransfer.setData("application/json", JSON.stringify({
-        playlistId: target.dataset.playlist,
-        soundId: target.dataset.sound
+        sounds: toMove
       }));
     });
 
@@ -546,22 +558,32 @@ class SoundSystem {
       if (!targetEl || !targetEl.dataset.id) return;
 
       const payload = JSON.parse(ev.dataTransfer.getData("application/json") || "{}");
+      const sounds = payload.sounds || [];
+      const targetPlaylistId = targetEl.dataset.id;
 
-      const sourcePlaylist = game.playlists.get(payload.playlistId);
-      const targetPlaylist = game.playlists.get(targetEl.dataset.id);
+      let moved = 0;
 
-      if (!sourcePlaylist || !targetPlaylist) return;
-      if (sourcePlaylist.id === targetPlaylist.id) return;
+      for (const soundKey of sounds) {
+        const [sourcePlaylistId, soundId] = soundKey.split(":");
+        const sourcePlaylist = game.playlists.get(sourcePlaylistId);
+        const targetPlaylist = game.playlists.get(targetPlaylistId);
 
-      const sound = sourcePlaylist.sounds.get(payload.soundId);
-      if (!sound) return;
+        if (!sourcePlaylist || !targetPlaylist) continue;
+        if (sourcePlaylist.id === targetPlaylist.id) continue;
 
-      const data = sound.toObject();
-      delete data._id;
+        const sound = sourcePlaylist.sounds.get(soundId);
+        if (!sound) continue;
 
-      await targetPlaylist.createEmbeddedDocuments("PlaylistSound", [data]);
-      await sourcePlaylist.deleteEmbeddedDocuments("PlaylistSound", [sound.id]);
+        const data = sound.toObject();
+        delete data._id;
 
+        await targetPlaylist.createEmbeddedDocuments("PlaylistSound", [data]);
+        await sourcePlaylist.deleteEmbeddedDocuments("PlaylistSound", [sound.id]);
+        moved++;
+      }
+
+      // Vider la sélection après le déplacement
+      this.selectedSoundKeys.clear();
       this.renderAll();
     });
 
