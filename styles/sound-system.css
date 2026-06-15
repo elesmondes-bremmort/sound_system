@@ -139,11 +139,15 @@
 #sound-system .ss-row,
 #sound-system .ss-now-row {
   display: grid;
-  grid-template-columns: 30px 30px 30px 30px minmax(0, 1fr);
+  grid-template-columns: 30px 30px 30px minmax(0, 1fr);
   gap: 6px;
   align-items: center;
   padding: 6px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+#sound-system .ss-row.has-timer {
+  grid-template-columns: 30px 30px 30px 30px minmax(0, 1fr);
 }
 
 #sound-system .ss-row:hover,
@@ -208,7 +212,11 @@
 }
 
 #sound-system .ss-now-row {
-  grid-template-columns: 30px 1fr;
+  grid-template-columns: 30px 30px minmax(0, 1fr);
+}
+
+#sound-system .ss-now-row.has-timer {
+  grid-template-columns: 30px 30px 30px minmax(0, 1fr);
 }
 
 #sound-system .ss-btn {
