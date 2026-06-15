@@ -170,6 +170,7 @@
   color: #f2e4c7;
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+  position: relative;
 }
 
 #sound-system .ss-pad:hover {
@@ -188,6 +189,22 @@
   width: 100%;
   font-weight: 700;
   word-break: break-word;
+}
+
+#sound-system .ss-pad-timer {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+#sound-system .ss-row.drop-above {
+  border-top: 3px solid #d1b250;
+}
+
+#sound-system .ss-row.drop-below {
+  border-bottom: 3px solid #d1b250;
 }
 
 #sound-system .ss-now-row {

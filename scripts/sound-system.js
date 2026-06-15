@@ -1,6 +1,7 @@
 const SOUND_SYSTEM_ID = "sound-system";
 const SOUND_SYSTEM_STORAGE_KEY = "sound-system-window-state";
 const SOUND_SYSTEM_VIEW_MODE_KEY = "sound-system-view-mode";
+const SOUND_SYSTEM_LOOP_DELAYS_KEY = "sound-system-loop-delays";
 
 class SoundSystem {
   static instance = null;
@@ -25,6 +26,57 @@ class SoundSystem {
     this.resizeObserver = null;
     this.position = this.loadPosition();
     this.viewMode = this.loadViewMode();
+    this.timedLoops = new Map(); // key -> intervalId
+    this.loopDelays = this.loadLoopDelays();
+  }
+
+  loadLoopDelays() {
+    try {
+      return JSON.parse(localStorage.getItem(SOUND_SYSTEM_LOOP_DELAYS_KEY) || "{}") || {};
+    } catch {
+      return {};
+    }
+  }
+
+  saveLoopDelays() {
+    try {
+      localStorage.setItem(SOUND_SYSTEM_LOOP_DELAYS_KEY, JSON.stringify(this.loopDelays));
+    } catch {}
+  }
+
+  _timedKey(playlist, sound) {
+    return `${playlist.id}:${sound.id}`;
+  }
+
+  startTimedLoop(playlist, sound, seconds) {
+    const key = `${playlist.id}:${sound.id}`;
+    this.stopTimedLoopByKey(key);
+    const id = setInterval(async () => {
+      try {
+        await playlist.playSound(sound);
+      } catch {}
+    }, Math.max(1, Number(seconds)) * 1000);
+    this.timedLoops.set(key, id);
+    this.loopDelays[key] = Number(seconds);
+    this.saveLoopDelays();
+  }
+
+  stopTimedLoop(playlist, sound) {
+    const key = `${playlist.id}:${sound.id}`;
+    this.stopTimedLoopByKey(key);
+  }
+
+  stopTimedLoopByKey(key) {
+    const id = this.timedLoops.get(key);
+    if (id) {
+      clearInterval(id);
+      this.timedLoops.delete(key);
+    }
+  }
+
+  stopAllTimers() {
+    for (const id of this.timedLoops.values()) clearInterval(id);
+    this.timedLoops.clear();
   }
 
   get allEntries() {
@@ -252,20 +304,28 @@ class SoundSystem {
         ? `<div class="ss-pad-grid">${entries.map(({ playlist, sound }, idx) => {
             const key = `${playlist.id}:${sound.id}`;
             const isSelected = this.selectedSoundKeys.has(key);
+            const key = `${playlist.id}:${sound.id}`;
+            const delay = this.loopDelays[key];
+            const timerActive = this.timedLoops.has(key);
             return `
               <div class="ss-pad ${sound.playing ? "playing" : ""} ${isSelected ? "selected" : ""}" draggable="true" data-playlist="${playlist.id}" data-sound="${sound.id}" data-index="${idx}">
                 <div class="ss-pad-label">${sound.playing ? "🟢 " : ""}${this.escape(sound.name)}</div>
+                <div class="ss-pad-timer">${timerActive ? `⏱ ${delay}s` : (delay ? `⏱ ${delay}s` : `⏱`)}</div>
               </div>
             `;
           }).join("")}</div>`
         : entries.map(({ playlist, sound }, idx) => {
             const key = `${playlist.id}:${sound.id}`;
             const isSelected = this.selectedSoundKeys.has(key);
+            const key = `${playlist.id}:${sound.id}`;
+            const delay = this.loopDelays[key];
+            const timerActive = this.timedLoops.has(key);
             return `
               <div class="ss-row ${isSelected ? "selected" : ""}" draggable="true" data-playlist="${playlist.id}" data-sound="${sound.id}" data-index="${idx}">
                 <button class="ss-btn play" title="Jouer">▶</button>
                 <button class="ss-btn stop" title="Arrêter">■</button>
                 <button class="ss-btn loop" title="Boucle">${sound.repeat ? "🔁" : "↻"}</button>
+                <button class="ss-btn timer" title="Timer">${timerActive ? `⏱ ${delay}s` : (delay ? `⏱ ${delay}s` : `⏱`)}</button>
 
                 <div class="ss-name">
                   ${sound.playing ? "🟢 " : ""}${this.escape(sound.name)}
@@ -290,6 +350,7 @@ class SoundSystem {
         <div class="ss-now-row" data-playlist="${playlist.id}" data-sound="${sound.id}">
           <button class="ss-btn stop" title="Arrêter">■</button>
           <button class="ss-btn loop" title="Boucle">${sound.repeat ? "🔁" : "↻"}</button>
+          <button class="ss-btn timer" title="Timer">${this.timedLoops.has(`${playlist.id}:${sound.id}`) ? `⏱ ${this.loopDelays[`${playlist.id}:${sound.id}`]}s` : (this.loopDelays[`${playlist.id}:${sound.id}`] ? `⏱ ${this.loopDelays[`${playlist.id}:${sound.id}`]}s` : `⏱`)}</button>
 
           <div>
             <div class="ss-name">${this.escape(sound.name)}</div>
@@ -365,8 +426,42 @@ class SoundSystem {
       this.renderResults();
     });
 
-    this.results.addEventListener("contextmenu", ev => {
+    this.results.addEventListener("contextmenu", async ev => {
       ev.preventDefault();
+
+      const timerEl = ev.target.closest(".timer, .ss-pad-timer");
+      if (timerEl) {
+        const target = timerEl.closest(".ss-row, .ss-pad");
+        if (!target) return;
+        const { playlist, sound } = this.getRowData(target);
+        if (!playlist || !sound) return;
+
+        const key = `${playlist.id}:${sound.id}`;
+        const current = this.loopDelays[key] || 10;
+        const seconds = await Dialog.prompt({
+          title: "Délai de répétition (secondes)",
+          content: `
+            <form>
+              <div class="form-group">
+                <label>Secondes</label>
+                <input type="number" name="value" min="1" value="${current}" />
+              </div>
+            </form>
+          `,
+          callback: html => Number(html.find("input[name='value']").val())
+        });
+
+        if (!seconds || Number.isNaN(seconds)) return;
+        this.loopDelays[key] = Number(seconds);
+        this.saveLoopDelays();
+        if (this.timedLoops.has(key)) {
+          // restart running timer with new delay
+          await sound.update({ repeat: false }).catch(() => {});
+          this.startTimedLoop(playlist, sound, seconds);
+        }
+        this.renderAll();
+        return;
+      }
 
       const target = ev.target.closest(".ss-row, .ss-pad");
       if (!target) return;
@@ -386,6 +481,7 @@ class SoundSystem {
           label: "■ Arrêter",
           action: async () => {
             await playlist.stopSound(sound);
+            this.stopTimedLoop(playlist, sound);
             this.renderAll();
           }
         },
@@ -429,14 +525,63 @@ class SoundSystem {
 
       if (ev.target.classList.contains("stop")) {
         const { playlist, sound } = this.getRowData(row);
-        if (playlist && sound) await playlist.stopSound(sound);
+        if (playlist && sound) {
+          await playlist.stopSound(sound);
+          this.stopTimedLoop(playlist, sound);
+        }
         this.renderAll();
         return;
       }
 
       if (ev.target.classList.contains("loop")) {
         const { playlist, sound } = this.getRowData(row);
-        if (playlist && sound) await sound.update({ repeat: !sound.repeat });
+        if (playlist && sound) {
+          const newRepeat = !sound.repeat;
+          if (newRepeat) this.stopTimedLoop(playlist, sound);
+          await sound.update({ repeat: newRepeat });
+        }
+        this.renderAll();
+        return;
+      }
+
+      if (ev.target.classList.contains("timer")) {
+        const { playlist, sound } = this.getRowData(row);
+        if (!playlist || !sound) return;
+        const key = `${playlist.id}:${sound.id}`;
+        const existing = this.loopDelays[key];
+        const active = this.timedLoops.has(key);
+
+        if (!existing) {
+          const seconds = await Dialog.prompt({
+            title: "Délai de répétition (secondes)",
+            content: `
+              <form>
+                <div class="form-group">
+                  <label>Secondes</label>
+                  <input type="number" name="value" min="1" value="10" />
+                </div>
+              </form>
+            `,
+            callback: html => Number(html.find("input[name='value']").val())
+          });
+          if (!seconds || Number.isNaN(seconds)) return;
+          this.loopDelays[key] = Number(seconds);
+          this.saveLoopDelays();
+          await sound.update({ repeat: false }).catch(() => {});
+          this.startTimedLoop(playlist, sound, seconds);
+          this.renderAll();
+          return;
+        }
+
+        if (!active) {
+          await sound.update({ repeat: false }).catch(() => {});
+          this.startTimedLoop(playlist, sound, existing);
+          this.renderAll();
+          return;
+        }
+
+        // active -> stop
+        this.stopTimedLoop(playlist, sound);
         this.renderAll();
         return;
       }
@@ -466,6 +611,7 @@ class SoundSystem {
         if (!playlist || !sound) return;
         if (sound.playing) {
           await playlist.stopSound(sound);
+          this.stopTimedLoop(playlist, sound);
           this.renderAll();
           return;
         }
@@ -535,6 +681,99 @@ class SoundSystem {
       }));
     });
 
+    // Allow reordering within the results list and show insertion indicator
+    this.results.addEventListener("dragover", ev => {
+      const row = ev.target.closest(".ss-row");
+      if (!row) return;
+      ev.preventDefault();
+      const rect = row.getBoundingClientRect();
+      const above = (ev.clientY - rect.top) < rect.height / 2;
+      this.results.querySelectorAll(".drop-above, .drop-below").forEach(el => el.classList.remove("drop-above", "drop-below"));
+      row.classList.add(above ? "drop-above" : "drop-below");
+    });
+
+    this.results.addEventListener("dragleave", ev => {
+      const row = ev.target.closest(".ss-row");
+      if (!row) return;
+      row.classList.remove("drop-above", "drop-below");
+    });
+
+    this.results.addEventListener("drop", async ev => {
+      ev.preventDefault();
+      this.results.querySelectorAll(".drop-above, .drop-below").forEach(el => el.classList.remove("drop-above", "drop-below"));
+
+      const payload = JSON.parse(ev.dataTransfer.getData("application/json") || "{}");
+      const sounds = payload.sounds || [];
+      if (!sounds.length) return;
+
+      const targetRow = ev.target.closest(".ss-row");
+      if (!targetRow) return;
+
+      const targetPlaylistId = targetRow.dataset.playlist;
+      const targetPlaylist = game.playlists.get(targetPlaylistId);
+      if (!targetPlaylist) return;
+
+      // If any sound belongs to the same playlist, perform reorder
+      const movedIds = sounds.map(k => {
+        const parts = k.split(":");
+        return { playlistId: parts[0], soundId: parts[1] };
+      });
+
+      const samePlaylistIds = movedIds.filter(m => m.playlistId === targetPlaylistId).map(m => m.soundId);
+
+      if (samePlaylistIds.length) {
+        // reorder within playlist
+        const entries = targetPlaylist.sounds.contents.map(s => s.id);
+
+        // remove moved ids
+        const remaining = entries.filter(id => !samePlaylistIds.includes(id));
+
+        // determine insert index
+        const insertIndex = Number(targetRow.dataset.index);
+        const rect = targetRow.getBoundingClientRect();
+        const above = (ev.clientY - rect.top) < rect.height / 2;
+        const idx = above ? insertIndex : insertIndex + 1;
+
+        // insert moved ids at idx
+        remaining.splice(idx, 0, ...samePlaylistIds);
+
+        const updates = remaining.map((id, i) => ({ _id: id, sort: i }));
+        await targetPlaylist.updateEmbeddedDocuments("PlaylistSound", updates);
+
+        this.selectedSoundKeys.clear();
+        this.renderAll();
+        return;
+      }
+
+      // Otherwise, treat as move to another playlist (create then delete)
+      let moved = 0;
+      for (const soundKey of sounds) {
+        const [sourcePlaylistId, soundId] = soundKey.split(":");
+        const sourcePlaylist = game.playlists.get(sourcePlaylistId);
+        const targetPlaylist = game.playlists.get(targetPlaylistId);
+
+        if (!sourcePlaylist || !targetPlaylist) continue;
+        if (sourcePlaylist.id === targetPlaylist.id) continue;
+
+        const sound = sourcePlaylist.sounds.get(soundId);
+        if (!sound) continue;
+
+        const data = sound.toObject();
+        delete data._id;
+
+        await targetPlaylist.createEmbeddedDocuments("PlaylistSound", [data]);
+        await sourcePlaylist.deleteEmbeddedDocuments("PlaylistSound", [sound.id]);
+        const oldKey = `${sourcePlaylist.id}:${sound.id}`;
+        this.stopTimedLoopByKey(oldKey);
+        delete this.loopDelays[oldKey];
+        this.saveLoopDelays();
+        moved++;
+      }
+
+      this.selectedSoundKeys.clear();
+      this.renderAll();
+    });
+
     this.tree.addEventListener("dragover", ev => {
       const playlist = ev.target.closest(".ss-playlist[data-id]");
       if (!playlist || !playlist.dataset.id) return;
@@ -579,6 +818,11 @@ class SoundSystem {
 
         await targetPlaylist.createEmbeddedDocuments("PlaylistSound", [data]);
         await sourcePlaylist.deleteEmbeddedDocuments("PlaylistSound", [sound.id]);
+        // cleanup timers/delays for moved sound
+        const oldKey = `${sourcePlaylist.id}:${sound.id}`;
+        this.stopTimedLoopByKey(oldKey);
+        delete this.loopDelays[oldKey];
+        this.saveLoopDelays();
         moved++;
       }
 
@@ -675,6 +919,15 @@ class SoundSystem {
     });
 
     if (!confirmed) return;
+
+    // clear any timers for this sound
+    const playlist = game.playlists.contents.find(p => p.sounds.has(sound.id));
+    if (playlist) {
+      this.stopTimedLoop(playlist, sound);
+      const key = `${playlist.id}:${sound.id}`;
+      delete this.loopDelays[key];
+      this.saveLoopDelays();
+    }
 
     await sound.delete();
     this.renderAll();
@@ -783,8 +1036,10 @@ class SoundSystem {
     for (const { playlist, sound } of playing) {
       try {
         await playlist.stopSound(sound);
+        this.stopTimedLoop(playlist, sound);
       } catch {}
     }
+    this.stopAllTimers();
   }
 
   getDefaultPlaylistId() {
@@ -922,6 +1177,11 @@ class SoundSystem {
 
       await targetPlaylist.createEmbeddedDocuments("PlaylistSound", [data]);
       await sourcePlaylist.deleteEmbeddedDocuments("PlaylistSound", [sound.id]);
+      // cleanup timers/delays from source
+      const oldKey = `${sourcePlaylist.id}:${sound.id}`;
+      this.stopTimedLoopByKey(oldKey);
+      delete this.loopDelays[oldKey];
+      this.saveLoopDelays();
       count++;
     }
 
@@ -995,6 +1255,11 @@ class SoundSystem {
       if (!sound) continue;
 
       await playlist.deleteEmbeddedDocuments("PlaylistSound", [sound.id]);
+      // cleanup timers/delays
+      this.stopTimedLoop(playlist, sound);
+      const lk = `${playlist.id}:${sound.id}`;
+      delete this.loopDelays[lk];
+      this.saveLoopDelays();
     }
 
     this.selectedSoundKeys.clear();
