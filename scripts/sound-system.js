@@ -304,7 +304,6 @@ class SoundSystem {
         ? `<div class="ss-pad-grid">${entries.map(({ playlist, sound }, idx) => {
             const key = `${playlist.id}:${sound.id}`;
             const isSelected = this.selectedSoundKeys.has(key);
-            const key = `${playlist.id}:${sound.id}`;
             const delay = this.loopDelays[key];
             const timerActive = this.timedLoops.has(key);
             return `
@@ -317,7 +316,6 @@ class SoundSystem {
         : entries.map(({ playlist, sound }, idx) => {
             const key = `${playlist.id}:${sound.id}`;
             const isSelected = this.selectedSoundKeys.has(key);
-            const key = `${playlist.id}:${sound.id}`;
             const delay = this.loopDelays[key];
             const timerActive = this.timedLoops.has(key);
             return `
