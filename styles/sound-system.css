@@ -271,3 +271,49 @@
 .ss-context-menu button.danger {
   color: #ff8b8b;
 }
+
+#sound-system .ss-selection-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  background: rgba(42, 59, 120, 0.15);
+  border: 1px solid rgba(75, 120, 200, 0.3);
+  border-radius: 6px;
+  margin-bottom: 10px;
+  color: #a8d8ff;
+  font-weight: 600;
+}
+
+#sound-system .ss-selection-actions {
+  display: flex;
+  gap: 5px;
+}
+
+#sound-system .ss-selection-actions button {
+  padding: 5px 10px;
+  border: 1px solid rgba(75, 120, 200, 0.5);
+  border-radius: 4px;
+  background: rgba(75, 120, 200, 0.15);
+  color: #a8d8ff;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+#sound-system .ss-selection-actions button:hover {
+  background: rgba(75, 120, 200, 0.3);
+  border-color: rgba(75, 120, 200, 0.8);
+}
+
+#sound-system .ss-row.selected {
+  background: rgba(75, 120, 200, 0.2);
+  border-left: 3px solid #5a88d8;
+  border-bottom: 1px solid rgba(75, 120, 200, 0.3);
+  padding-left: 3px;
+}
+
+#sound-system .ss-pad.selected {
+  border: 2px solid #5a88d8;
+  background: rgba(75, 120, 200, 0.25);
+  box-shadow: 0 0 8px rgba(75, 120, 200, 0.4);
+}

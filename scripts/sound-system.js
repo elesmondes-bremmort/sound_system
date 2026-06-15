@@ -19,6 +19,8 @@ class SoundSystem {
 
   constructor() {
     this.selectedPlaylistId = null;
+    this.selectedSoundKeys = new Set();
+    this.lastSelectedIndex = -1;
     this.contextMenu = null;
     this.resizeObserver = null;
     this.position = this.loadPosition();
@@ -230,26 +232,49 @@ class SoundSystem {
     const selectedPlaylist = this.getSelectedPlaylist();
     const showPads = !!selectedPlaylist && selectedPlaylist.mode === CONST.PLAYLIST_MODES.SIMULTANEOUS && this.viewMode === "pads";
 
-    this.results.innerHTML = entries.length
-      ? showPads
-        ? `<div class="ss-pad-grid">${entries.map(({ playlist, sound }) => `
-            <div class="ss-pad ${sound.playing ? "playing" : ""}" draggable="true" data-playlist="${playlist.id}" data-sound="${sound.id}">
-              <div class="ss-pad-label">${sound.playing ? "🟢 " : ""}${this.escape(sound.name)}</div>
-            </div>
-          `).join("")}</div>`
-        : entries.map(({ playlist, sound }) => `
-            <div class="ss-row" draggable="true" data-playlist="${playlist.id}" data-sound="${sound.id}">
-              <button class="ss-btn play" title="Jouer">▶</button>
-              <button class="ss-btn stop" title="Arrêter">■</button>
-              <button class="ss-btn loop" title="Boucle">${sound.repeat ? "🔁" : "↻"}</button>
+    let selectionBar = "";
+    if (this.selectedSoundKeys.size > 0) {
+      selectionBar = `
+        <div class="ss-selection-bar">
+          <span>${this.selectedSoundKeys.size} son${this.selectedSoundKeys.size > 1 ? "s" : ""} sélectionné${this.selectedSoundKeys.size > 1 ? "s" : ""}</span>
+          <div class="ss-selection-actions">
+            <button class="ss-move-to">Déplacer vers...</button>
+            <button class="ss-copy-to">Copier vers...</button>
+            <button class="ss-delete-selected">Supprimer</button>
+            <button class="ss-deselect-all">Désélectionner</button>
+          </div>
+        </div>
+      `;
+    }
 
-              <div class="ss-name">
-                ${sound.playing ? "🟢 " : ""}${this.escape(sound.name)}
-                <div class="ss-sub">${this.escape(playlist.name)}</div>
+    this.results.innerHTML = selectionBar + (entries.length
+      ? showPads
+        ? `<div class="ss-pad-grid">${entries.map(({ playlist, sound }, idx) => {
+            const key = `${playlist.id}:${sound.id}`;
+            const isSelected = this.selectedSoundKeys.has(key);
+            return `
+              <div class="ss-pad ${sound.playing ? "playing" : ""} ${isSelected ? "selected" : ""}" draggable="true" data-playlist="${playlist.id}" data-sound="${sound.id}" data-index="${idx}">
+                <div class="ss-pad-label">${sound.playing ? "🟢 " : ""}${this.escape(sound.name)}</div>
               </div>
-            </div>
-          `).join("")
-      : `<p class="ss-empty">Aucun son trouvé.</p>`;
+            `;
+          }).join("")}</div>`
+        : entries.map(({ playlist, sound }, idx) => {
+            const key = `${playlist.id}:${sound.id}`;
+            const isSelected = this.selectedSoundKeys.has(key);
+            return `
+              <div class="ss-row ${isSelected ? "selected" : ""}" draggable="true" data-playlist="${playlist.id}" data-sound="${sound.id}" data-index="${idx}">
+                <button class="ss-btn play" title="Jouer">▶</button>
+                <button class="ss-btn stop" title="Arrêter">■</button>
+                <button class="ss-btn loop" title="Boucle">${sound.repeat ? "🔁" : "↻"}</button>
+
+                <div class="ss-name">
+                  ${sound.playing ? "🟢 " : ""}${this.escape(sound.name)}
+                  <div class="ss-sub">${this.escape(playlist.name)}</div>
+                </div>
+              </div>
+            `;
+          }).join("")
+      : `<p class="ss-empty">Aucun son trouvé.</p>`);
   }
 
   renderNowPlaying() {
@@ -314,10 +339,21 @@ class SoundSystem {
       const item = ev.target.closest(".ss-playlist");
       const playlist = item?.dataset.id ? game.playlists.get(item.dataset.id) : null;
 
+      const isSoundboard = playlist?.mode === CONST.PLAYLIST_MODES.SIMULTANEOUS;
+
       this.showContextMenu(ev.clientX, ev.clientY, [
         { label: "➕ Nouvelle playlist", action: () => this.createPlaylist(false) },
         { label: "🎛️ Nouveau soundboard", action: () => this.createPlaylist(true) },
         playlist && { label: "✏️ Renommer", action: () => this.renamePlaylist(playlist) },
+        playlist && { 
+          label: isSoundboard ? "🎵 Convertir en playlist" : "🎛 Convertir en soundboard",
+          action: async () => {
+            const newMode = isSoundboard ? CONST.PLAYLIST_MODES.SEQUENTIAL : CONST.PLAYLIST_MODES.SIMULTANEOUS;
+            await playlist.update({ mode: newMode });
+            ui.notifications?.info(isSoundboard ? "Converti en playlist" : "Converti en soundboard");
+            this.renderAll();
+          }
+        },
         playlist && { label: "🗑️ Supprimer", danger: true, action: () => this.deletePlaylist(playlist) }
       ].filter(Boolean));
     });
@@ -363,6 +399,12 @@ class SoundSystem {
     this.results.addEventListener("click", async ev => {
       const pad = ev.target.closest(".ss-pad");
       if (pad) {
+        if (ev.ctrlKey) {
+          ev.preventDefault();
+          this.toggleSoundSelection(pad);
+          this.renderResults();
+          return;
+        }
         const { playlist, sound } = this.getRowData(pad);
         if (!playlist || !sound) return;
         await playlist.playSound(sound);
@@ -373,13 +415,42 @@ class SoundSystem {
       const row = ev.target.closest(".ss-row");
       if (!row) return;
 
+      if (ev.target.classList.contains("play")) {
+        const { playlist, sound } = this.getRowData(row);
+        if (playlist && sound) await playlist.playSound(sound);
+        this.renderAll();
+        return;
+      }
+
+      if (ev.target.classList.contains("stop")) {
+        const { playlist, sound } = this.getRowData(row);
+        if (playlist && sound) await playlist.stopSound(sound);
+        this.renderAll();
+        return;
+      }
+
+      if (ev.target.classList.contains("loop")) {
+        const { playlist, sound } = this.getRowData(row);
+        if (playlist && sound) await sound.update({ repeat: !sound.repeat });
+        this.renderAll();
+        return;
+      }
+
+      if (ev.ctrlKey) {
+        this.toggleSoundSelection(row);
+        this.renderResults();
+        return;
+      }
+
+      if (ev.shiftKey && this.lastSelectedIndex >= 0) {
+        this.selectRange(Number(row.dataset.index));
+        this.renderResults();
+        return;
+      }
+
       const { playlist, sound } = this.getRowData(row);
       if (!playlist || !sound) return;
-
-      if (ev.target.classList.contains("play")) await playlist.playSound(sound);
-      if (ev.target.classList.contains("stop")) await playlist.stopSound(sound);
-      if (ev.target.classList.contains("loop")) await sound.update({ repeat: !sound.repeat });
-
+      await playlist.playSound(sound);
       this.renderAll();
     });
 
@@ -426,10 +497,10 @@ class SoundSystem {
     });
 
     this.playingTitle.addEventListener("click", async ev => {
-      if (ev.target.classList.contains("stop-all")) {
-        await this.stopAllSounds();
-        this.renderAll();
-      }
+      const stopAllButton = ev.target.closest?.(".ss-stop-all");
+      if (!stopAllButton) return;
+      await this.stopAllSounds();
+      this.renderAll();
     });
 
     this.now.addEventListener("input", async ev => {
@@ -495,6 +566,33 @@ class SoundSystem {
     });
 
     document.addEventListener("click", () => this.removeContextMenu());
+
+    document.addEventListener("keydown", ev => {
+      if (ev.key === "Escape") {
+        this.selectedSoundKeys.clear();
+        this.renderResults();
+      }
+    });
+
+    this.results.addEventListener("click", async ev => {
+      if (ev.target.classList.contains("ss-move-to")) {
+        await this.moveSelectedSounds();
+        return;
+      }
+      if (ev.target.classList.contains("ss-copy-to")) {
+        await this.copySelectedSounds();
+        return;
+      }
+      if (ev.target.classList.contains("ss-delete-selected")) {
+        await this.deleteSelectedSounds();
+        return;
+      }
+      if (ev.target.classList.contains("ss-deselect-all")) {
+        this.selectedSoundKeys.clear();
+        this.renderResults();
+        return;
+      }
+    });
 
     this.activateWindowDrag();
     this.activateResizeObserver();
@@ -735,6 +833,151 @@ class SoundSystem {
     } catch (err) {
       ui.notifications?.error("Impossible d'ouvrir le sélecteur de fichiers.");
     }
+  }
+
+  toggleSoundSelection(element) {
+    const key = `${element.dataset.playlist}:${element.dataset.sound}`;
+    if (this.selectedSoundKeys.has(key)) {
+      this.selectedSoundKeys.delete(key);
+    } else {
+      this.selectedSoundKeys.add(key);
+    }
+    this.lastSelectedIndex = Number(element.dataset.index);
+  }
+
+  selectRange(toIndex) {
+    const fromIndex = this.lastSelectedIndex;
+    const entries = this.getFilteredEntries();
+    const minIndex = Math.min(fromIndex, toIndex);
+    const maxIndex = Math.max(fromIndex, toIndex);
+
+    for (let i = minIndex; i <= maxIndex && i < entries.length; i++) {
+      const { playlist, sound } = entries[i];
+      const key = `${playlist.id}:${sound.id}`;
+      this.selectedSoundKeys.add(key);
+    }
+
+    this.lastSelectedIndex = toIndex;
+  }
+
+  async moveSelectedSounds() {
+    const playlists = game.playlists.contents;
+    if (!playlists.length) return;
+
+    const html = `
+      <form>
+        <div class="form-group">
+          <label>Playlist cible</label>
+          <select name="playlist">
+            ${playlists.map(p => `<option value="${p.id}">${this.escape(p.name)}</option>`).join("")}
+          </select>
+        </div>
+      </form>
+    `;
+
+    const targetId = await Dialog.prompt({
+      title: "Déplacer les sons",
+      content: html,
+      callback: el => el.find("select[name='playlist']").val()
+    });
+
+    if (!targetId) return;
+
+    const targetPlaylist = game.playlists.get(targetId);
+    if (!targetPlaylist) return;
+
+    let count = 0;
+    for (const key of this.selectedSoundKeys) {
+      const [playlistId, soundId] = key.split(":");
+      const sourcePlaylist = game.playlists.get(playlistId);
+      if (!sourcePlaylist) continue;
+
+      const sound = sourcePlaylist.sounds.get(soundId);
+      if (!sound) continue;
+
+      const data = sound.toObject();
+      delete data._id;
+
+      await targetPlaylist.createEmbeddedDocuments("PlaylistSound", [data]);
+      await sourcePlaylist.deleteEmbeddedDocuments("PlaylistSound", [sound.id]);
+      count++;
+    }
+
+    this.selectedSoundKeys.clear();
+    ui.notifications?.info(`${count} son${count > 1 ? "s" : ""} déplacé${count > 1 ? "s" : ""}`);
+    this.renderAll();
+  }
+
+  async copySelectedSounds() {
+    const playlists = game.playlists.contents;
+    if (!playlists.length) return;
+
+    const html = `
+      <form>
+        <div class="form-group">
+          <label>Playlist cible</label>
+          <select name="playlist">
+            ${playlists.map(p => `<option value="${p.id}">${this.escape(p.name)}</option>`).join("")}
+          </select>
+        </div>
+      </form>
+    `;
+
+    const targetId = await Dialog.prompt({
+      title: "Copier les sons",
+      content: html,
+      callback: el => el.find("select[name='playlist']").val()
+    });
+
+    if (!targetId) return;
+
+    const targetPlaylist = game.playlists.get(targetId);
+    if (!targetPlaylist) return;
+
+    let count = 0;
+    for (const key of this.selectedSoundKeys) {
+      const [playlistId, soundId] = key.split(":");
+      const sourcePlaylist = game.playlists.get(playlistId);
+      if (!sourcePlaylist) continue;
+
+      const sound = sourcePlaylist.sounds.get(soundId);
+      if (!sound) continue;
+
+      const data = sound.toObject();
+      delete data._id;
+
+      await targetPlaylist.createEmbeddedDocuments("PlaylistSound", [data]);
+      count++;
+    }
+
+    this.selectedSoundKeys.clear();
+    ui.notifications?.info(`${count} son${count > 1 ? "s" : ""} copié${count > 1 ? "s" : ""}`);
+    this.renderAll();
+  }
+
+  async deleteSelectedSounds() {
+    const count = this.selectedSoundKeys.size;
+    const confirmed = await Dialog.confirm({
+      title: "Supprimer les sons",
+      content: `<p>Supprimer <strong>${count} son${count > 1 ? "s" : ""}</strong> ?</p>`
+    });
+
+    if (!confirmed) return;
+
+    for (const key of this.selectedSoundKeys) {
+      const [playlistId, soundId] = key.split(":");
+      const playlist = game.playlists.get(playlistId);
+      if (!playlist) continue;
+
+      const sound = playlist.sounds.get(soundId);
+      if (!sound) continue;
+
+      await playlist.deleteEmbeddedDocuments("PlaylistSound", [sound.id]);
+    }
+
+    this.selectedSoundKeys.clear();
+    ui.notifications?.info(`${count} son${count > 1 ? "s" : ""} supprimé${count > 1 ? "s" : ""}`);
+    this.renderAll();
   }
 
   getRowData(row) {
