@@ -1,5 +1,6 @@
 const SOUND_SYSTEM_ID = "sound-system";
 const SOUND_SYSTEM_STORAGE_KEY = "sound-system-window-state";
+const SOUND_SYSTEM_VIEW_MODE_KEY = "sound-system-view-mode";
 
 class SoundSystem {
   static instance = null;
@@ -21,6 +22,7 @@ class SoundSystem {
     this.contextMenu = null;
     this.resizeObserver = null;
     this.position = this.loadPosition();
+    this.viewMode = this.loadViewMode();
   }
 
   get allEntries() {
@@ -163,11 +165,20 @@ class SoundSystem {
   }
 
   renderTree() {
+    const selectedPlaylist = this.getSelectedPlaylist();
+    const isSoundboard = !!selectedPlaylist && selectedPlaylist.mode === CONST.PLAYLIST_MODES.SIMULTANEOUS;
+
     this.tree.innerHTML = `
       <div class="ss-tree-actions">
         <button class="ss-create-playlist">+ Playlist</button>
         <button class="ss-create-soundboard">+ Soundboard</button>
         <button class="ss-import-sound">Importer un son</button>
+        ${isSoundboard ? `
+          <div class="ss-view-toggle">
+            <button class="ss-view-mode ${this.viewMode === "list" ? "active" : ""}" data-mode="list">📋 Liste</button>
+            <button class="ss-view-mode ${this.viewMode === "pads" ? "active" : ""}" data-mode="pads">🎛 Pads</button>
+          </div>
+        ` : ""}
       </div>
 
       <div class="ss-playlist ${!this.selectedPlaylistId ? "active" : ""}" data-id="">
@@ -200,22 +211,44 @@ class SoundSystem {
       .slice(0, 200);
   }
 
+  getSelectedPlaylist() {
+    return this.selectedPlaylistId ? game.playlists.get(this.selectedPlaylistId) : null;
+  }
+
+  loadViewMode() {
+    const mode = localStorage.getItem(SOUND_SYSTEM_VIEW_MODE_KEY);
+    return mode === "pads" ? "pads" : "list";
+  }
+
+  saveViewMode(mode) {
+    this.viewMode = mode === "pads" ? "pads" : "list";
+    localStorage.setItem(SOUND_SYSTEM_VIEW_MODE_KEY, this.viewMode);
+  }
+
   renderResults() {
     const entries = this.getFilteredEntries();
+    const selectedPlaylist = this.getSelectedPlaylist();
+    const showPads = !!selectedPlaylist && selectedPlaylist.mode === CONST.PLAYLIST_MODES.SIMULTANEOUS && this.viewMode === "pads";
 
     this.results.innerHTML = entries.length
-      ? entries.map(({ playlist, sound }) => `
-        <div class="ss-row" draggable="true" data-playlist="${playlist.id}" data-sound="${sound.id}">
-          <button class="ss-btn play" title="Jouer">▶</button>
-          <button class="ss-btn stop" title="Arrêter">■</button>
-          <button class="ss-btn loop" title="Boucle">${sound.repeat ? "🔁" : "↻"}</button>
+      ? showPads
+        ? `<div class="ss-pad-grid">${entries.map(({ playlist, sound }) => `
+            <div class="ss-pad ${sound.playing ? "playing" : ""}" draggable="true" data-playlist="${playlist.id}" data-sound="${sound.id}">
+              <div class="ss-pad-label">${sound.playing ? "🟢 " : ""}${this.escape(sound.name)}</div>
+            </div>
+          `).join("")}</div>`
+        : entries.map(({ playlist, sound }) => `
+            <div class="ss-row" draggable="true" data-playlist="${playlist.id}" data-sound="${sound.id}">
+              <button class="ss-btn play" title="Jouer">▶</button>
+              <button class="ss-btn stop" title="Arrêter">■</button>
+              <button class="ss-btn loop" title="Boucle">${sound.repeat ? "🔁" : "↻"}</button>
 
-          <div class="ss-name">
-            ${sound.playing ? "🟢 " : ""}${this.escape(sound.name)}
-            <div class="ss-sub">${this.escape(playlist.name)}</div>
-          </div>
-        </div>
-      `).join("")
+              <div class="ss-name">
+                ${sound.playing ? "🟢 " : ""}${this.escape(sound.name)}
+                <div class="ss-sub">${this.escape(playlist.name)}</div>
+              </div>
+            </div>
+          `).join("")
       : `<p class="ss-empty">Aucun son trouvé.</p>`;
   }
 
@@ -224,7 +257,7 @@ class SoundSystem {
     this.playingTitle.innerHTML = `<b>En cours (${playing.length})</b>`;
 
     if (playing.length) {
-      this.playingTitle.innerHTML += ` <button class="ss-btn stop-all" title="Tout arrêter">■ Tout arrêter</button>`;
+      this.playingTitle.innerHTML += ` <button class="ss-stop-all" title="Tout arrêter">■ Tout arrêter</button>`;
     }
 
     this.now.innerHTML = playing.length
@@ -262,6 +295,12 @@ class SoundSystem {
         return;
       }
 
+      if (ev.target.classList.contains("ss-view-mode")) {
+        this.saveViewMode(ev.target.dataset.mode);
+        this.renderAll();
+        return;
+      }
+
       const item = ev.target.closest(".ss-playlist");
       if (!item) return;
 
@@ -288,10 +327,10 @@ class SoundSystem {
     this.results.addEventListener("contextmenu", ev => {
       ev.preventDefault();
 
-      const row = ev.target.closest(".ss-row");
-      if (!row) return;
+      const target = ev.target.closest(".ss-row, .ss-pad");
+      if (!target) return;
 
-      const { playlist, sound } = this.getRowData(row);
+      const { playlist, sound } = this.getRowData(target);
       if (!playlist || !sound) return;
 
       this.showContextMenu(ev.clientX, ev.clientY, [
@@ -322,6 +361,15 @@ class SoundSystem {
     });
 
     this.results.addEventListener("click", async ev => {
+      const pad = ev.target.closest(".ss-pad");
+      if (pad) {
+        const { playlist, sound } = this.getRowData(pad);
+        if (!playlist || !sound) return;
+        await playlist.playSound(sound);
+        this.renderAll();
+        return;
+      }
+
       const row = ev.target.closest(".ss-row");
       if (!row) return;
 
@@ -336,6 +384,20 @@ class SoundSystem {
     });
 
     this.results.addEventListener("dblclick", async ev => {
+      const pad = ev.target.closest(".ss-pad");
+      if (pad) {
+        const { playlist, sound } = this.getRowData(pad);
+        if (!playlist || !sound) return;
+        if (sound.playing) {
+          await playlist.stopSound(sound);
+          this.renderAll();
+          return;
+        }
+        await playlist.playSound(sound);
+        this.renderAll();
+        return;
+      }
+
       const row = ev.target.closest(".ss-row");
       if (!row) return;
 
@@ -381,12 +443,12 @@ class SoundSystem {
     });
 
     this.results.addEventListener("dragstart", ev => {
-      const row = ev.target.closest(".ss-row");
-      if (!row) return;
+      const target = ev.target.closest(".ss-row, .ss-pad");
+      if (!target) return;
 
       ev.dataTransfer.setData("application/json", JSON.stringify({
-        playlistId: row.dataset.playlist,
-        soundId: row.dataset.sound
+        playlistId: target.dataset.playlist,
+        soundId: target.dataset.sound
       }));
     });
 
