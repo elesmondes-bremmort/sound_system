@@ -79,6 +79,27 @@ class SoundSystem {
     this.timedLoops.clear();
   }
 
+  cleanupDeletedSoundTimer(sound) {
+    const soundId = sound?.id;
+    if (!soundId) return;
+
+    const playlistId = sound.parent?.id ?? sound.playlist?.id;
+    const keys = playlistId
+      ? [`${playlistId}:${soundId}`]
+      : Array.from(this.timedLoops.keys()).filter(key => key.endsWith(`:${soundId}`));
+
+    let changed = false;
+    for (const key of keys) {
+      this.stopTimedLoopByKey(key);
+      if (key in this.loopDelays) {
+        delete this.loopDelays[key];
+        changed = true;
+      }
+    }
+
+    if (changed) this.saveLoopDelays();
+  }
+
   get allEntries() {
     return game.playlists.contents.flatMap(playlist =>
       playlist.sounds.contents.map(sound => ({ playlist, sound }))
@@ -338,18 +359,42 @@ class SoundSystem {
   }
 
   renderNowPlaying() {
-    const playing = this.allEntries.filter(({ sound }) => sound.playing);
-    this.playingTitle.innerHTML = `<b>En cours (${playing.length})</b>`;
+    const entriesByKey = new Map();
 
-    if (playing.length) {
+    for (const { playlist, sound } of this.allEntries) {
+      const key = `${playlist.id}:${sound.id}`;
+      if (sound.playing || this.timedLoops.has(key)) entriesByKey.set(key, { playlist, sound });
+    }
+
+    for (const key of Array.from(this.timedLoops.keys())) {
+      if (entriesByKey.has(key)) continue;
+
+      const [playlistId, soundId] = key.split(":");
+      const playlist = game.playlists.get(playlistId);
+      const sound = playlist?.sounds?.get(soundId);
+
+      if (playlist && sound) {
+        entriesByKey.set(key, { playlist, sound });
+        continue;
+      }
+
+      this.stopTimedLoopByKey(key);
+    }
+
+    const armedOrPlaying = Array.from(entriesByKey.values());
+    this.playingTitle.innerHTML = `<b>En cours / Armés (${armedOrPlaying.length})</b>`;
+
+    if (armedOrPlaying.length) {
       this.playingTitle.innerHTML += ` <button class="ss-stop-all" title="Tout arrêter">■ Tout arrêter</button>`;
     }
 
-    this.now.innerHTML = playing.length
-      ? playing.map(({ playlist, sound }) => {
+    this.now.innerHTML = armedOrPlaying.length
+      ? armedOrPlaying.map(({ playlist, sound }) => {
           const isSoundboard = playlist.mode === CONST.PLAYLIST_MODES.SIMULTANEOUS;
-          const delay = this.loopDelays[`${playlist.id}:${sound.id}`];
-          const timerActive = this.timedLoops.has(`${playlist.id}:${sound.id}`);
+          const key = `${playlist.id}:${sound.id}`;
+          const delay = this.loopDelays[key];
+          const timerActive = this.timedLoops.has(key);
+          const status = `${sound.playing ? "🟢 " : ""}${timerActive ? "⏱ " : ""}`;
           return `
         <div class="ss-now-row ${isSoundboard ? "has-timer" : ""}" data-playlist="${playlist.id}" data-sound="${sound.id}">
           <button class="ss-btn stop" title="Arrêter">■</button>
@@ -357,14 +402,14 @@ class SoundSystem {
           ${isSoundboard ? `<button class="ss-btn timer" title="Timer">${timerActive ? `⏱ ${delay}s` : (delay ? `⏱ ${delay}s` : `⏱`)}</button>` : ""}
 
           <div>
-            <div class="ss-name">${this.escape(sound.name)}</div>
+            <div class="ss-name">${status}${this.escape(sound.name)}</div>
             <div class="ss-sub">${this.escape(playlist.name)}</div>
             <input class="volume" type="range" min="0" max="1" step="0.05" value="${sound.volume ?? 0.5}" />
           </div>
         </div>
       `;
         }).join("")
-      : `<p class="ss-empty">Aucune piste en cours.</p>`;
+      : `<p class="ss-empty">Aucune piste en cours ou armée.</p>`;
   }
 
   activateListeners() {
@@ -644,12 +689,57 @@ class SoundSystem {
       if (!playlist || !sound) return;
 
       if (ev.target.classList.contains("stop")) {
-        await playlist.stopSound(sound);
+        await playlist.stopSound(sound).catch(() => {});
+        this.stopTimedLoop(playlist, sound);
         this.renderAll();
+        return;
       }
       if (ev.target.classList.contains("loop")) {
-        await sound.update({ repeat: !sound.repeat });
+        const newRepeat = !sound.repeat;
+        if (newRepeat) this.stopTimedLoop(playlist, sound);
+        await sound.update({ repeat: newRepeat });
         this.renderAll();
+        return;
+      }
+      if (ev.target.classList.contains("timer")) {
+        if (playlist.mode !== CONST.PLAYLIST_MODES.SIMULTANEOUS) return;
+
+        const key = `${playlist.id}:${sound.id}`;
+        const existing = this.loopDelays[key];
+        const active = this.timedLoops.has(key);
+
+        if (!existing) {
+          const seconds = await Dialog.prompt({
+            title: "Délai de répétition (secondes)",
+            content: `
+              <form>
+                <div class="form-group">
+                  <label>Secondes</label>
+                  <input type="number" name="value" min="1" value="10" />
+                </div>
+              </form>
+            `,
+            callback: html => Number(html.find("input[name='value']").val())
+          });
+          if (!seconds || Number.isNaN(seconds)) return;
+          this.loopDelays[key] = Number(seconds);
+          this.saveLoopDelays();
+          await sound.update({ repeat: false }).catch(() => {});
+          this.startTimedLoop(playlist, sound, seconds);
+          this.renderAll();
+          return;
+        }
+
+        if (!active) {
+          await sound.update({ repeat: false }).catch(() => {});
+          this.startTimedLoop(playlist, sound, existing);
+          this.renderAll();
+          return;
+        }
+
+        this.stopTimedLoop(playlist, sound);
+        this.renderAll();
+        return;
       }
     });
 
@@ -1339,5 +1429,8 @@ Hooks.once("ready", () => {
   Hooks.on("updatePlaylist", () => SoundSystem.instance?.renderAll());
   Hooks.on("updatePlaylistSound", () => SoundSystem.instance?.renderAll());
   Hooks.on("createPlaylistSound", () => SoundSystem.instance?.renderAll());
-  Hooks.on("deletePlaylistSound", () => SoundSystem.instance?.renderAll());
+  Hooks.on("deletePlaylistSound", sound => {
+    SoundSystem.instance?.cleanupDeletedSoundTimer(sound);
+    SoundSystem.instance?.renderAll();
+  });
 });
