@@ -2,9 +2,12 @@ const SOUND_SYSTEM_ID = "sound-system";
 const SOUND_SYSTEM_STORAGE_KEY = "sound-system-window-state";
 const SOUND_SYSTEM_VIEW_MODE_KEY = "sound-system-view-mode";
 const SOUND_SYSTEM_LOOP_DELAYS_KEY = "sound-system-loop-delays";
+const SOUND_SYSTEM_SELECTED_PLAYLIST_KEY = "sound-system-selected-playlist";
+const SOUND_SYSTEM_ACTIVE_TIMERS_KEY = "sound-system-active-timers";
 
 class SoundSystem {
   static instance = null;
+  static timedLoops = new Map();
 
   static open() {
     if (!game.user.isGM) return;
@@ -19,15 +22,16 @@ class SoundSystem {
   }
 
   constructor() {
-    this.selectedPlaylistId = null;
+    this.selectedPlaylistId = this.loadSelectedPlaylistId();
     this.selectedSoundKeys = new Set();
     this.lastSelectedIndex = -1;
     this.contextMenu = null;
     this.resizeObserver = null;
     this.position = this.loadPosition();
     this.viewMode = this.loadViewMode();
-    this.timedLoops = new Map(); // key -> intervalId
+    this.timedLoops = SoundSystem.timedLoops; // key -> intervalId
     this.loopDelays = this.loadLoopDelays();
+    this.clearPersistedActiveTimers();
   }
 
   loadLoopDelays() {
@@ -41,6 +45,30 @@ class SoundSystem {
   saveLoopDelays() {
     try {
       localStorage.setItem(SOUND_SYSTEM_LOOP_DELAYS_KEY, JSON.stringify(this.loopDelays));
+    } catch {}
+  }
+
+  loadSelectedPlaylistId() {
+    try {
+      return localStorage.getItem(SOUND_SYSTEM_SELECTED_PLAYLIST_KEY) || null;
+    } catch {
+      return null;
+    }
+  }
+
+  saveSelectedPlaylistId() {
+    try {
+      if (this.selectedPlaylistId) {
+        localStorage.setItem(SOUND_SYSTEM_SELECTED_PLAYLIST_KEY, this.selectedPlaylistId);
+      } else {
+        localStorage.removeItem(SOUND_SYSTEM_SELECTED_PLAYLIST_KEY);
+      }
+    } catch {}
+  }
+
+  clearPersistedActiveTimers() {
+    try {
+      localStorage.removeItem(SOUND_SYSTEM_ACTIVE_TIMERS_KEY);
     } catch {}
   }
 
@@ -67,8 +95,8 @@ class SoundSystem {
   }
 
   stopTimedLoopByKey(key) {
-    const id = this.timedLoops.get(key);
-    if (id) {
+    if (this.timedLoops.has(key)) {
+      const id = this.timedLoops.get(key);
       clearInterval(id);
       this.timedLoops.delete(key);
     }
@@ -77,6 +105,44 @@ class SoundSystem {
   stopAllTimers() {
     for (const id of this.timedLoops.values()) clearInterval(id);
     this.timedLoops.clear();
+  }
+
+  async toggleTimedLoop(playlist, sound) {
+    if (!playlist || !sound) return;
+    if (playlist.mode !== CONST.PLAYLIST_MODES.SIMULTANEOUS) return;
+
+    const key = `${playlist.id}:${sound.id}`;
+    const existing = this.loopDelays[key];
+    const active = this.timedLoops.has(key);
+
+    if (!existing) {
+      const seconds = await Dialog.prompt({
+        title: "Délai de répétition (secondes)",
+        content: `
+          <form>
+            <div class="form-group">
+              <label>Secondes</label>
+              <input type="number" name="value" min="1" value="10" />
+            </div>
+          </form>
+        `,
+        callback: html => Number(html.find("input[name='value']").val())
+      });
+      if (!seconds || Number.isNaN(seconds)) return;
+      this.loopDelays[key] = Number(seconds);
+      this.saveLoopDelays();
+      await sound.update({ repeat: false }).catch(() => {});
+      this.startTimedLoop(playlist, sound, seconds);
+      return;
+    }
+
+    if (!active) {
+      await sound.update({ repeat: false }).catch(() => {});
+      this.startTimedLoop(playlist, sound, existing);
+      return;
+    }
+
+    this.stopTimedLoop(playlist, sound);
   }
 
   cleanupDeletedSoundTimer(sound) {
@@ -98,6 +164,38 @@ class SoundSystem {
     }
 
     if (changed) this.saveLoopDelays();
+  }
+
+  static cleanupDeletedSoundTimer(sound) {
+    const soundId = sound?.id;
+    if (!soundId) return;
+
+    const playlistId = sound.parent?.id ?? sound.playlist?.id;
+    const keys = playlistId
+      ? [`${playlistId}:${soundId}`]
+      : Array.from(this.timedLoops.keys()).filter(key => key.endsWith(`:${soundId}`));
+
+    for (const key of keys) {
+      if (this.timedLoops.has(key)) {
+        clearInterval(this.timedLoops.get(key));
+        this.timedLoops.delete(key);
+      }
+      if (this.instance?.loopDelays && key in this.instance.loopDelays) {
+        delete this.instance.loopDelays[key];
+      }
+    }
+
+    try {
+      const delays = JSON.parse(localStorage.getItem(SOUND_SYSTEM_LOOP_DELAYS_KEY) || "{}") || {};
+      let changed = false;
+      for (const key of keys) {
+        if (key in delays) {
+          delete delays[key];
+          changed = true;
+        }
+      }
+      if (changed) localStorage.setItem(SOUND_SYSTEM_LOOP_DELAYS_KEY, JSON.stringify(delays));
+    } catch {}
   }
 
   get allEntries() {
@@ -234,6 +332,7 @@ class SoundSystem {
   }
 
   renderAll() {
+    this.normalizeSelectedPlaylist();
     this.renderTree();
     this.renderResults();
     this.renderNowPlaying();
@@ -290,6 +389,14 @@ class SoundSystem {
     return this.selectedPlaylistId ? game.playlists.get(this.selectedPlaylistId) : null;
   }
 
+  normalizeSelectedPlaylist() {
+    if (!this.selectedPlaylistId) return;
+    if (game.playlists.get(this.selectedPlaylistId)) return;
+
+    this.selectedPlaylistId = null;
+    this.saveSelectedPlaylistId();
+  }
+
   loadViewMode() {
     const mode = localStorage.getItem(SOUND_SYSTEM_VIEW_MODE_KEY);
     return mode === "pads" ? "pads" : "list";
@@ -332,7 +439,7 @@ class SoundSystem {
             return `
               <div class="ss-pad ${sound.playing ? "playing" : ""} ${timerActive ? "timed-active" : ""} ${isSelected ? "selected" : ""}" draggable="true" data-playlist="${playlist.id}" data-sound="${sound.id}" data-index="${idx}">
                 <div class="ss-pad-label">${sound.playing ? "🟢 " : ""}${this.escape(sound.name)}</div>
-                <div class="ss-pad-timer ${timerActive ? "active" : ""}">${timerActive ? `⏱ ${delay}s` : (delay ? `⏱ ${delay}s` : `⏱`)}</div>
+                <button class="ss-pad-timer ${timerActive ? "active" : ""}" title="Timer">${timerActive ? `⏱ ${delay}s` : (delay ? `⏱ ${delay}s` : `⏱`)}</button>
               </div>
             `;
           }).join("")}</div>`
@@ -441,6 +548,7 @@ class SoundSystem {
       if (!item) return;
 
       this.selectedPlaylistId = item.dataset.id || null;
+      this.saveSelectedPlaylistId();
       this.selectedSoundKeys.clear();
       this.lastSelectedIndex = -1;
       this.renderAll();
@@ -548,6 +656,17 @@ class SoundSystem {
     });
 
     this.results.addEventListener("click", async ev => {
+      const padTimer = ev.target.closest(".ss-pad-timer");
+      if (padTimer) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const target = padTimer.closest(".ss-pad");
+        const { playlist, sound } = this.getRowData(target);
+        await this.toggleTimedLoop(playlist, sound);
+        this.renderAll();
+        return;
+      }
+
       const pad = ev.target.closest(".ss-pad");
       if (pad) {
         if (ev.ctrlKey) {
@@ -596,43 +715,7 @@ class SoundSystem {
 
       if (ev.target.classList.contains("timer")) {
         const { playlist, sound } = this.getRowData(row);
-        if (!playlist || !sound) return;
-        if (playlist.mode !== CONST.PLAYLIST_MODES.SIMULTANEOUS) return;
-        const key = `${playlist.id}:${sound.id}`;
-        const existing = this.loopDelays[key];
-        const active = this.timedLoops.has(key);
-
-        if (!existing) {
-          const seconds = await Dialog.prompt({
-            title: "Délai de répétition (secondes)",
-            content: `
-              <form>
-                <div class="form-group">
-                  <label>Secondes</label>
-                  <input type="number" name="value" min="1" value="10" />
-                </div>
-              </form>
-            `,
-            callback: html => Number(html.find("input[name='value']").val())
-          });
-          if (!seconds || Number.isNaN(seconds)) return;
-          this.loopDelays[key] = Number(seconds);
-          this.saveLoopDelays();
-          await sound.update({ repeat: false }).catch(() => {});
-          this.startTimedLoop(playlist, sound, seconds);
-          this.renderAll();
-          return;
-        }
-
-        if (!active) {
-          await sound.update({ repeat: false }).catch(() => {});
-          this.startTimedLoop(playlist, sound, existing);
-          this.renderAll();
-          return;
-        }
-
-        // active -> stop
-        this.stopTimedLoop(playlist, sound);
+        await this.toggleTimedLoop(playlist, sound);
         this.renderAll();
         return;
       }
@@ -702,42 +785,7 @@ class SoundSystem {
         return;
       }
       if (ev.target.classList.contains("timer")) {
-        if (playlist.mode !== CONST.PLAYLIST_MODES.SIMULTANEOUS) return;
-
-        const key = `${playlist.id}:${sound.id}`;
-        const existing = this.loopDelays[key];
-        const active = this.timedLoops.has(key);
-
-        if (!existing) {
-          const seconds = await Dialog.prompt({
-            title: "Délai de répétition (secondes)",
-            content: `
-              <form>
-                <div class="form-group">
-                  <label>Secondes</label>
-                  <input type="number" name="value" min="1" value="10" />
-                </div>
-              </form>
-            `,
-            callback: html => Number(html.find("input[name='value']").val())
-          });
-          if (!seconds || Number.isNaN(seconds)) return;
-          this.loopDelays[key] = Number(seconds);
-          this.saveLoopDelays();
-          await sound.update({ repeat: false }).catch(() => {});
-          this.startTimedLoop(playlist, sound, seconds);
-          this.renderAll();
-          return;
-        }
-
-        if (!active) {
-          await sound.update({ repeat: false }).catch(() => {});
-          this.startTimedLoop(playlist, sound, existing);
-          this.renderAll();
-          return;
-        }
-
-        this.stopTimedLoop(playlist, sound);
+        await this.toggleTimedLoop(playlist, sound);
         this.renderAll();
         return;
       }
@@ -1004,7 +1052,10 @@ class SoundSystem {
     if (!confirmed) return;
 
     await playlist.delete();
-    if (this.selectedPlaylistId === playlist.id) this.selectedPlaylistId = null;
+    if (this.selectedPlaylistId === playlist.id) {
+      this.selectedPlaylistId = null;
+      this.saveSelectedPlaylistId();
+    }
     this.renderAll();
   }
 
@@ -1430,7 +1481,7 @@ Hooks.once("ready", () => {
   Hooks.on("updatePlaylistSound", () => SoundSystem.instance?.renderAll());
   Hooks.on("createPlaylistSound", () => SoundSystem.instance?.renderAll());
   Hooks.on("deletePlaylistSound", sound => {
-    SoundSystem.instance?.cleanupDeletedSoundTimer(sound);
+    SoundSystem.cleanupDeletedSoundTimer(sound);
     SoundSystem.instance?.renderAll();
   });
 });

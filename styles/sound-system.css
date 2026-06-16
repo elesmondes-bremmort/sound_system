@@ -168,8 +168,10 @@
   border: 1px solid #8b6f3d;
   border-radius: 14px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 7px;
   text-align: center;
   color: #f2e4c7;
   cursor: pointer;
@@ -196,13 +198,14 @@
 }
 
 #sound-system .ss-pad-timer {
-  position: absolute;
-  right: 8px;
-  bottom: 8px;
+  cursor: pointer;
   padding: 2px 5px;
   border: 1px solid transparent;
   border-radius: 5px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #f2e4c7;
   font-size: 12px;
+  line-height: 1.2;
   opacity: 0.9;
 }
 
@@ -366,6 +369,10 @@
   background: rgba(160, 120, 20, 0.35);
   border-color: #d9a441;
   box-shadow: 0 0 10px rgba(217, 164, 65, 0.45);
+}
+
+#sound-system .ss-pad.playing.timed-active {
+  box-shadow: 0 0 10px rgba(217, 164, 65, 0.45), inset 0 0 0 1px rgba(75, 158, 75, 0.55);
 }
 
 #sound-system .ss-pad.timed-active .ss-pad-label {
