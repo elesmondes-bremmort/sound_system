@@ -5,7 +5,7 @@
   font-family: var(--font-primary);
   resize: both;
   overflow: hidden;
-  min-width: 520px;
+  min-width: 760px;
   min-height: 320px;
 }
 
@@ -37,7 +37,7 @@
 
 #sound-system .ss-main {
   display: grid;
-  grid-template-columns: minmax(160px, 230px) minmax(240px, 1fr) minmax(180px, 260px);
+  grid-template-columns: minmax(160px, 230px) minmax(240px, 1fr) minmax(150px, 200px) minmax(180px, 260px);
   height: calc(100% - 43px);
 }
 
@@ -54,6 +54,11 @@
 #sound-system .ss-playing {
   border-left: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(0, 0, 0, 0.18);
+}
+
+#sound-system .ss-presets {
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.12);
 }
 
 #sound-system .ss-tree-actions {
@@ -106,6 +111,68 @@
 
 #sound-system .ss-stop-all:hover {
   background: #9b2b2b;
+}
+
+#sound-system .ss-presets-title {
+  margin-bottom: 8px;
+  font-size: 16px;
+}
+
+#sound-system .ss-save-preset {
+  width: 100%;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  border: 1px solid #b3892f;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #f2e4c7;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+#sound-system .ss-save-preset:hover {
+  background: rgba(217, 164, 65, 0.18);
+  border-color: #d9a441;
+}
+
+#sound-system .ss-preset-list {
+  display: grid;
+  gap: 8px;
+}
+
+#sound-system .ss-preset {
+  padding: 7px;
+  border: 1px solid rgba(139, 111, 61, 0.65);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+#sound-system .ss-preset-name {
+  margin-bottom: 6px;
+  font-weight: 700;
+  line-height: 1.2;
+  word-break: break-word;
+}
+
+#sound-system .ss-preset-actions {
+  display: flex;
+  gap: 5px;
+}
+
+#sound-system .ss-preset-actions button {
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid #8b6f3d;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #f2e4c7;
+  cursor: pointer;
+}
+
+#sound-system .ss-preset-actions button:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: #d9a441;
 }
 
 #sound-system .ss-search {

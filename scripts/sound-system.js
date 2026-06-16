@@ -1,9 +1,11 @@
 const SOUND_SYSTEM_ID = "sound-system";
+const SOUND_SYSTEM_MODULE_ID = "sound_system";
 const SOUND_SYSTEM_STORAGE_KEY = "sound-system-window-state";
 const SOUND_SYSTEM_VIEW_MODE_KEY = "sound-system-view-mode";
 const SOUND_SYSTEM_LOOP_DELAYS_KEY = "sound-system-loop-delays";
 const SOUND_SYSTEM_SELECTED_PLAYLIST_KEY = "sound-system-selected-playlist";
 const SOUND_SYSTEM_ACTIVE_TIMERS_KEY = "sound-system-active-timers";
+const SOUND_SYSTEM_PRESETS_SETTING = "presets";
 
 class SoundSystem {
   static instance = null;
@@ -208,7 +210,7 @@ class SoundSystem {
     const fallback = {
       top: 80,
       left: 100,
-      width: 980,
+      width: 1160,
       height: 680
     };
 
@@ -295,6 +297,12 @@ class SoundSystem {
             <div class="ss-results"></div>
           </section>
 
+          <aside class="ss-presets">
+            <div class="ss-presets-title"><b>Presets</b></div>
+            <button class="ss-save-preset">💾 Sauver preset</button>
+            <div class="ss-preset-list"></div>
+          </aside>
+
           <aside class="ss-playing">
             <div class="ss-playing-title"></div>
             <div class="ss-now"></div>
@@ -311,6 +319,8 @@ class SoundSystem {
     this.now = win.querySelector(".ss-now");
     this.search = win.querySelector(".ss-search");
     this.playingTitle = win.querySelector(".ss-playing-title");
+    this.presets = win.querySelector(".ss-presets");
+    this.presetList = win.querySelector(".ss-preset-list");
 
     this.activateListeners();
     this.renderAll();
@@ -335,6 +345,7 @@ class SoundSystem {
     this.normalizeSelectedPlaylist();
     this.renderTree();
     this.renderResults();
+    this.renderPresets();
     this.renderNowPlaying();
   }
 
@@ -522,8 +533,210 @@ class SoundSystem {
       : `<p class="ss-empty">Aucune piste en cours ou armée.</p>`;
   }
 
+  getPresets() {
+    try {
+      const presets = game.settings.get(SOUND_SYSTEM_MODULE_ID, SOUND_SYSTEM_PRESETS_SETTING);
+      return Array.isArray(presets) ? presets : [];
+    } catch {
+      return [];
+    }
+  }
+
+  async savePresets(presets) {
+    await game.settings.set(SOUND_SYSTEM_MODULE_ID, SOUND_SYSTEM_PRESETS_SETTING, presets);
+  }
+
+  makePresetId() {
+    return globalThis.foundry?.utils?.randomID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+
+  captureCurrentAudioState() {
+    const entriesByKey = new Map();
+
+    for (const { playlist, sound } of this.allEntries) {
+      const key = `${playlist.id}:${sound.id}`;
+      if (sound.playing || this.timedLoops.has(key)) entriesByKey.set(key, { playlist, sound });
+    }
+
+    return Array.from(entriesByKey.values()).map(({ playlist, sound }) => {
+      const key = `${playlist.id}:${sound.id}`;
+      const timerSeconds = this.timedLoops.has(key) ? Number(this.loopDelays[key] || 10) : null;
+      return {
+        playlistId: playlist.id,
+        soundId: sound.id,
+        volume: sound.volume ?? 0.5,
+        repeat: timerSeconds ? false : !!sound.repeat,
+        timerSeconds
+      };
+    });
+  }
+
+  renderPresets() {
+    if (!this.presetList) return;
+
+    const presets = this.getPresets();
+    this.presetList.innerHTML = presets.length
+      ? presets.map(preset => `
+        <div class="ss-preset" data-preset="${preset.id}">
+          <div class="ss-preset-name">${this.escape(preset.name)}</div>
+          <div class="ss-preset-actions">
+            <button class="ss-preset-play" title="Lancer">▶</button>
+            <button class="ss-preset-update" title="Mettre à jour">💾</button>
+            <button class="ss-preset-stop" title="Stopper">■</button>
+          </div>
+        </div>
+      `).join("")
+      : `<p class="ss-empty">Aucun preset.</p>`;
+  }
+
+  async createPresetFromCurrentState() {
+    const entries = this.captureCurrentAudioState();
+    if (!entries.length) {
+      ui.notifications?.warn("Aucun son en cours ou armé à sauvegarder.");
+      return;
+    }
+
+    const name = await this.promptText("Sauver preset", "Nom", "Nouveau preset");
+    if (!name) return;
+
+    const presets = this.getPresets();
+    presets.push({
+      id: this.makePresetId(),
+      name,
+      entries
+    });
+
+    await this.savePresets(presets);
+    this.renderPresets();
+  }
+
+  async updatePresetFromCurrentState(presetId) {
+    const entries = this.captureCurrentAudioState();
+    if (!entries.length) {
+      ui.notifications?.warn("Aucun son en cours ou armé à sauvegarder.");
+      return;
+    }
+
+    const presets = this.getPresets();
+    const preset = presets.find(p => p.id === presetId);
+    if (!preset) return;
+
+    preset.entries = entries;
+    await this.savePresets(presets);
+    this.renderPresets();
+  }
+
+  async playPreset(presetId) {
+    const preset = this.getPresets().find(p => p.id === presetId);
+    if (!preset) return;
+
+    for (const entry of preset.entries || []) {
+      const playlist = game.playlists.get(entry.playlistId);
+      const sound = playlist?.sounds?.get(entry.soundId);
+      if (!playlist || !sound) continue;
+
+      await sound.update({
+        volume: Number.isFinite(Number(entry.volume)) ? Number(entry.volume) : sound.volume ?? 0.5,
+        repeat: entry.timerSeconds ? false : !!entry.repeat
+      }).catch(() => {});
+
+      await playlist.playSound(sound).catch(() => {});
+
+      if (entry.timerSeconds) {
+        this.startTimedLoop(playlist, sound, Number(entry.timerSeconds));
+      } else {
+        this.stopTimedLoop(playlist, sound);
+      }
+    }
+
+    this.renderAll();
+  }
+
+  async stopPreset(presetId) {
+    const preset = this.getPresets().find(p => p.id === presetId);
+    if (!preset) return;
+
+    for (const entry of preset.entries || []) {
+      const playlist = game.playlists.get(entry.playlistId);
+      const sound = playlist?.sounds?.get(entry.soundId);
+      if (!playlist || !sound) continue;
+
+      await playlist.stopSound(sound).catch(() => {});
+      this.stopTimedLoop(playlist, sound);
+    }
+
+    this.renderAll();
+  }
+
+  async renamePreset(presetId) {
+    const presets = this.getPresets();
+    const preset = presets.find(p => p.id === presetId);
+    if (!preset) return;
+
+    const name = await this.promptText("Renommer le preset", "Nom", preset.name);
+    if (!name || name === preset.name) return;
+
+    preset.name = name;
+    await this.savePresets(presets);
+    this.renderPresets();
+  }
+
+  async deletePreset(presetId) {
+    const presets = this.getPresets();
+    const preset = presets.find(p => p.id === presetId);
+    if (!preset) return;
+
+    const confirmed = await Dialog.confirm({
+      title: "Supprimer le preset",
+      content: `<p>Supprimer <strong>${this.escape(preset.name)}</strong> ?</p>`
+    });
+
+    if (!confirmed) return;
+    await this.savePresets(presets.filter(p => p.id !== presetId));
+    this.renderPresets();
+  }
+
   activateListeners() {
     this.win.querySelector(".ss-close").addEventListener("click", () => this.close());
+
+    this.presets.addEventListener("click", async ev => {
+      if (ev.target.closest(".ss-save-preset")) {
+        await this.createPresetFromCurrentState();
+        return;
+      }
+
+      const presetRow = ev.target.closest(".ss-preset");
+      if (!presetRow) return;
+
+      const presetId = presetRow.dataset.preset;
+
+      if (ev.target.closest(".ss-preset-play")) {
+        await this.playPreset(presetId);
+        return;
+      }
+
+      if (ev.target.closest(".ss-preset-update")) {
+        await this.updatePresetFromCurrentState(presetId);
+        return;
+      }
+
+      if (ev.target.closest(".ss-preset-stop")) {
+        await this.stopPreset(presetId);
+      }
+    });
+
+    this.presets.addEventListener("contextmenu", ev => {
+      const presetRow = ev.target.closest(".ss-preset");
+      if (!presetRow) return;
+
+      ev.preventDefault();
+      const presetId = presetRow.dataset.preset;
+
+      this.showContextMenu(ev.clientX, ev.clientY, [
+        { label: "✏️ Renommer", action: () => this.renamePreset(presetId) },
+        { label: "🗑️ Supprimer", danger: true, action: () => this.deletePreset(presetId) }
+      ]);
+    });
 
     this.tree.addEventListener("click", async ev => {
       if (ev.target.classList.contains("ss-create-playlist")) {
@@ -1456,6 +1669,13 @@ class SoundSystem {
 
 Hooks.once("init", () => {
   console.log("sound_system: init hook");
+  game.settings.register(SOUND_SYSTEM_MODULE_ID, SOUND_SYSTEM_PRESETS_SETTING, {
+    name: "Sound System Presets",
+    scope: "world",
+    config: false,
+    type: Array,
+    default: []
+  });
 });
 
 Hooks.once("ready", () => {
