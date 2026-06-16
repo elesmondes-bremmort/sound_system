@@ -330,9 +330,9 @@ class SoundSystem {
             const delay = this.loopDelays[key];
             const timerActive = this.timedLoops.has(key);
             return `
-              <div class="ss-pad ${sound.playing ? "playing" : ""} ${isSelected ? "selected" : ""}" draggable="true" data-playlist="${playlist.id}" data-sound="${sound.id}" data-index="${idx}">
+              <div class="ss-pad ${sound.playing ? "playing" : ""} ${timerActive ? "timed-active" : ""} ${isSelected ? "selected" : ""}" draggable="true" data-playlist="${playlist.id}" data-sound="${sound.id}" data-index="${idx}">
                 <div class="ss-pad-label">${sound.playing ? "🟢 " : ""}${this.escape(sound.name)}</div>
-                <div class="ss-pad-timer">${timerActive ? `⏱ ${delay}s` : (delay ? `⏱ ${delay}s` : `⏱`)}</div>
+                <div class="ss-pad-timer ${timerActive ? "active" : ""}">${timerActive ? `⏱ ${delay}s` : (delay ? `⏱ ${delay}s` : `⏱`)}</div>
               </div>
             `;
           }).join("")}</div>`
@@ -342,11 +342,11 @@ class SoundSystem {
             const delay = this.loopDelays[key];
             const timerActive = this.timedLoops.has(key);
             return `
-              <div class="ss-row ${showTimer ? "has-timer" : ""} ${isSelected ? "selected" : ""}" draggable="true" data-playlist="${playlist.id}" data-sound="${sound.id}" data-index="${idx}">
+              <div class="ss-row ${showTimer ? "has-timer" : ""} ${timerActive ? "timed-active" : ""} ${isSelected ? "selected" : ""}" draggable="true" data-playlist="${playlist.id}" data-sound="${sound.id}" data-index="${idx}">
                 <button class="ss-btn play" title="Jouer">▶</button>
                 <button class="ss-btn stop" title="Arrêter">■</button>
                 <button class="ss-btn loop" title="Boucle">${sound.repeat ? "🔁" : "↻"}</button>
-                ${showTimer ? `<button class="ss-btn timer" title="Timer">${timerActive ? `⏱ ${delay}s` : (delay ? `⏱ ${delay}s` : `⏱`)}</button>` : ""}
+                ${showTimer ? `<button class="ss-btn timer ${timerActive ? "active" : ""}" title="Timer">${timerActive ? `⏱ ${delay}s` : (delay ? `⏱ ${delay}s` : `⏱`)}</button>` : ""}
 
                 <div class="ss-name">
                   <span>${sound.playing ? "🟢 " : ""}${this.escape(sound.name)}</span>
@@ -399,7 +399,7 @@ class SoundSystem {
         <div class="ss-now-row ${isSoundboard ? "has-timer" : ""}" data-playlist="${playlist.id}" data-sound="${sound.id}">
           <button class="ss-btn stop" title="Arrêter">■</button>
           <button class="ss-btn loop" title="Boucle">${sound.repeat ? "🔁" : "↻"}</button>
-          ${isSoundboard ? `<button class="ss-btn timer" title="Timer">${timerActive ? `⏱ ${delay}s` : (delay ? `⏱ ${delay}s` : `⏱`)}</button>` : ""}
+          ${isSoundboard ? `<button class="ss-btn timer ${timerActive ? "active" : ""}" title="Timer">${timerActive ? `⏱ ${delay}s` : (delay ? `⏱ ${delay}s` : `⏱`)}</button>` : ""}
 
           <div>
             <div class="ss-name">${status}${this.escape(sound.name)}</div>

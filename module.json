@@ -2,7 +2,7 @@
   "id": "sound_system",
   "title": "Sound System",
   "description": "Advanced floating audio console for Foundry VTT v13 playlists.",
-  "version": "0.1.23",
+  "version": "0.1.24",
   "authors": [
     {
       "name": "Bremmort"

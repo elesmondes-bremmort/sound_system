@@ -147,7 +147,7 @@
 }
 
 #sound-system .ss-row.has-timer {
-  grid-template-columns: 30px 30px 30px 30px minmax(0, 1fr);
+  grid-template-columns: 30px 30px 30px minmax(54px, auto) minmax(0, 1fr);
 }
 
 #sound-system .ss-row:hover,
@@ -199,6 +199,9 @@
   position: absolute;
   right: 8px;
   bottom: 8px;
+  padding: 2px 5px;
+  border: 1px solid transparent;
+  border-radius: 5px;
   font-size: 12px;
   opacity: 0.9;
 }
@@ -216,7 +219,7 @@
 }
 
 #sound-system .ss-now-row.has-timer {
-  grid-template-columns: 30px 30px 30px minmax(0, 1fr);
+  grid-template-columns: 30px 30px minmax(54px, auto) minmax(0, 1fr);
 }
 
 #sound-system .ss-btn {
@@ -224,6 +227,12 @@
   width: 28px;
   height: 26px;
   padding: 0;
+}
+
+#sound-system .ss-btn.timer {
+  width: auto;
+  min-width: 52px;
+  padding: 0 5px;
 }
 
 #sound-system .ss-name {
@@ -351,4 +360,26 @@
   border: 2px solid #5a88d8;
   background: rgba(75, 120, 200, 0.25);
   box-shadow: 0 0 8px rgba(75, 120, 200, 0.4);
+}
+
+#sound-system .ss-pad.timed-active {
+  background: rgba(160, 120, 20, 0.35);
+  border-color: #d9a441;
+  box-shadow: 0 0 10px rgba(217, 164, 65, 0.45);
+}
+
+#sound-system .ss-pad.timed-active .ss-pad-label {
+  color: #ffe2a0;
+}
+
+#sound-system .ss-row.timed-active {
+  background: rgba(160, 120, 20, 0.16);
+}
+
+#sound-system .ss-btn.timer.active,
+#sound-system .ss-pad-timer.active {
+  background: rgba(217, 164, 65, 0.32);
+  border-color: #d9a441;
+  color: #ffe2a0;
+  font-weight: bold;
 }
