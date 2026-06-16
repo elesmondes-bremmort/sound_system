@@ -197,6 +197,18 @@
   word-break: break-word;
 }
 
+#sound-system .ss-pad-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 26px;
+}
+
+#sound-system .ss-pad .ss-btn {
+  flex: 0 0 auto;
+}
+
 #sound-system .ss-pad-timer {
   cursor: pointer;
   padding: 2px 5px;
@@ -236,6 +248,12 @@
   width: auto;
   min-width: 52px;
   padding: 0 5px;
+}
+
+#sound-system .ss-btn.loop.active {
+  background: rgba(75, 120, 200, 0.32);
+  border-color: #5a88d8;
+  color: #a8d8ff;
 }
 
 #sound-system .ss-name {

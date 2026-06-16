@@ -439,7 +439,10 @@ class SoundSystem {
             return `
               <div class="ss-pad ${sound.playing ? "playing" : ""} ${timerActive ? "timed-active" : ""} ${isSelected ? "selected" : ""}" draggable="true" data-playlist="${playlist.id}" data-sound="${sound.id}" data-index="${idx}">
                 <div class="ss-pad-label">${sound.playing ? "🟢 " : ""}${this.escape(sound.name)}</div>
-                <button class="ss-pad-timer ${timerActive ? "active" : ""}" title="Timer">${timerActive ? `⏱ ${delay}s` : (delay ? `⏱ ${delay}s` : `⏱`)}</button>
+                <div class="ss-pad-actions">
+                  <button class="ss-btn loop ss-pad-loop ${sound.repeat ? "active" : ""}" title="Boucle native">${sound.repeat ? "🔁" : "↻"}</button>
+                  <button class="ss-pad-timer ${timerActive ? "active" : ""}" title="Timer">${timerActive ? `⏱ ${delay}s` : (delay ? `⏱ ${delay}s` : `⏱`)}</button>
+                </div>
               </div>
             `;
           }).join("")}</div>`
@@ -656,6 +659,21 @@ class SoundSystem {
     });
 
     this.results.addEventListener("click", async ev => {
+      const padLoop = ev.target.closest(".ss-pad-loop");
+      if (padLoop) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const target = padLoop.closest(".ss-pad");
+        const { playlist, sound } = this.getRowData(target);
+        if (playlist && sound) {
+          const newRepeat = !sound.repeat;
+          if (newRepeat) this.stopTimedLoop(playlist, sound);
+          await sound.update({ repeat: newRepeat });
+        }
+        this.renderAll();
+        return;
+      }
+
       const padTimer = ev.target.closest(".ss-pad-timer");
       if (padTimer) {
         ev.preventDefault();
@@ -739,6 +757,12 @@ class SoundSystem {
     });
 
     this.results.addEventListener("dblclick", async ev => {
+      if (ev.target.closest(".ss-pad-loop, .ss-pad-timer")) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        return;
+      }
+
       const pad = ev.target.closest(".ss-pad");
       if (pad) {
         const { playlist, sound } = this.getRowData(pad);
