@@ -358,6 +358,7 @@ class SoundSystem {
         <button class="ss-create-playlist">+ Playlist</button>
         <button class="ss-create-soundboard">+ Soundboard</button>
         <button class="ss-import-sound">Importer un son</button>
+        <button class="ss-open-opus">🎧 Opus</button>
         ${isSoundboard ? `
           <div class="ss-view-toggle">
             <button class="ss-view-mode ${this.viewMode === "list" ? "active" : ""}" data-mode="list">📋 Liste</button>
@@ -751,6 +752,11 @@ class SoundSystem {
 
       if (ev.target.classList.contains("ss-import-sound")) {
         await this.importSound();
+        return;
+      }
+
+      if (ev.target.classList.contains("ss-open-opus")) {
+        this.openOpus();
         return;
       }
 
@@ -1444,6 +1450,33 @@ class SoundSystem {
     } catch {
       return "Nouveau Son";
     }
+  }
+
+  openOpus() {
+    const existing = Object.values(ui.windows).find(app =>
+      app?.title === "Opus" ||
+      app?.constructor?.name === "OpusApp" ||
+      app?.options?.template === "modules/dscryb/templates/opus-app.hbs"
+    );
+
+    if (existing) {
+      existing.render?.(true);
+      existing.bringToTop?.();
+      existing.maximize?.();
+      return;
+    }
+
+    const opusButton =
+      document.querySelector('[title*="Opus"]') ||
+      document.querySelector('[aria-label*="Opus"]') ||
+      document.querySelector('[data-tooltip*="Opus"]');
+
+    if (opusButton) {
+      opusButton.click();
+      return;
+    }
+
+    ui.notifications.warn("Opus n'est pas ouvert. Ouvre-le une première fois depuis dScryb / Origin Vault.");
   }
 
   async importSound() {
