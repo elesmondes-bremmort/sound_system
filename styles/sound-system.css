@@ -203,6 +203,36 @@
   border-color: gold;
 }
 
+.ss-multi-import .notes {
+  margin: 0 0 8px;
+  overflow-wrap: anywhere;
+}
+
+.ss-multi-import-actions {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.ss-multi-import-list {
+  display: grid;
+  gap: 4px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.ss-multi-import-file {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+}
+
+.ss-multi-import-file span {
+  overflow-wrap: anywhere;
+}
+
 #sound-system .ss-row,
 #sound-system .ss-now-row {
   display: grid;

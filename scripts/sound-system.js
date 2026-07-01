@@ -6,6 +6,7 @@ const SOUND_SYSTEM_LOOP_DELAYS_KEY = "sound-system-loop-delays";
 const SOUND_SYSTEM_SELECTED_PLAYLIST_KEY = "sound-system-selected-playlist";
 const SOUND_SYSTEM_ACTIVE_TIMERS_KEY = "sound-system-active-timers";
 const SOUND_SYSTEM_PRESETS_SETTING = "presets";
+const SOUND_SYSTEM_AUDIO_EXTENSIONS = new Set(["mp3", "ogg", "wav", "flac", "m4a", "webm"]);
 
 class SoundSystem {
   static instance = null;
@@ -358,6 +359,7 @@ class SoundSystem {
         <button class="ss-create-playlist">+ Playlist</button>
         <button class="ss-create-soundboard">+ Soundboard</button>
         <button class="ss-import-sound">Importer un son</button>
+        <button class="ss-import-multiple-sounds">Importer plusieurs sons</button>
         <button class="ss-open-opus">🎧 Opus</button>
         ${isSoundboard ? `
           <div class="ss-view-toggle">
@@ -752,6 +754,11 @@ class SoundSystem {
 
       if (ev.target.classList.contains("ss-import-sound")) {
         await this.importSound();
+        return;
+      }
+
+      if (ev.target.classList.contains("ss-import-multiple-sounds")) {
+        await this.importMultipleSounds();
         return;
       }
 
@@ -1527,6 +1534,173 @@ class SoundSystem {
     } catch (err) {
       ui.notifications?.error("Impossible d'ouvrir le sélecteur de fichiers.");
     }
+  }
+
+  async importMultipleSounds() {
+    if (!game.user.isGM) return;
+
+    const playlists = game.playlists.contents;
+    if (!playlists.length) {
+      ui.notifications?.error("Aucune playlist disponible pour l'import.");
+      return;
+    }
+
+    if (!FilePicker?.browse) {
+      ui.notifications?.error("Import multiple indisponible: FilePicker.browse est introuvable.");
+      return;
+    }
+
+    const html = `
+      <form>
+        <div class="form-group">
+          <label>Playlist cible</label>
+          <select name="playlist">
+            ${playlists.map(p => `<option value="${p.id}" ${this.selectedPlaylistId === p.id ? 'selected' : ''}>${this.escape(p.name)}</option>`).join("")}
+          </select>
+        </div>
+      </form>
+    `;
+
+    const targetId = await Dialog.prompt({
+      title: "Importer plusieurs sons",
+      content: html,
+      callback: el => el.find("select[name='playlist']").val()
+    });
+
+    if (!targetId) return;
+
+    try {
+      let picker;
+      picker = new FilePicker({
+        type: "audio",
+        callback: async path => {
+          try {
+            const playlist = game.playlists.get(targetId);
+            if (!playlist) throw new Error("Playlist introuvable");
+
+            const source = picker?.activeSource ?? picker?.source ?? "data";
+            const directory = this.getDirectoryFromPath(path);
+            const audioFiles = await this.getAudioFilesFromDirectory(source, directory);
+
+            if (!audioFiles.length) {
+              ui.notifications?.warn("Aucun fichier audio trouvÃ© dans ce dossier.");
+              return;
+            }
+
+            const selectedFiles = await this.promptMultipleAudioFiles(audioFiles, directory);
+            if (!selectedFiles?.length) return;
+
+            const soundsData = selectedFiles.map(filePath => ({
+              name: this.getCleanFileName(filePath),
+              path: filePath
+            }));
+
+            await playlist.createEmbeddedDocuments("PlaylistSound", soundsData);
+            ui.notifications?.info(`${soundsData.length} sons importÃ©s.`);
+            this.renderAll();
+          } catch (err) {
+            console.error("sound_system | Erreur import multiple", err);
+            ui.notifications?.error("Erreur lors de l'import multiple des sons.");
+          }
+        }
+      });
+
+      picker.render(true);
+    } catch (err) {
+      console.error("sound_system | FilePicker import multiple", err);
+      ui.notifications?.error("Impossible d'ouvrir le sÃ©lecteur de fichiers.");
+    }
+  }
+
+  getDirectoryFromPath(path) {
+    const cleanPath = String(path ?? "").split(/[?#]/)[0];
+    if (!cleanPath) return "";
+
+    const fileName = cleanPath.split("/").pop() ?? "";
+    const extension = fileName.includes(".") ? fileName.split(".").pop().toLowerCase() : "";
+    if (!SOUND_SYSTEM_AUDIO_EXTENSIONS.has(extension)) return cleanPath;
+
+    const index = cleanPath.lastIndexOf("/");
+    return index >= 0 ? cleanPath.slice(0, index) : "";
+  }
+
+  async getAudioFilesFromDirectory(source, target) {
+    if (!FilePicker?.browse) throw new Error("FilePicker.browse indisponible");
+
+    const result = await FilePicker.browse(source || "data", target || "");
+    const files = Array.isArray(result?.files) ? result.files : [];
+    const audioFiles = files
+      .map(file => String(file))
+      .filter(file => {
+        const cleanPath = file.split(/[?#]/)[0];
+        const fileName = cleanPath.split("/").pop() ?? "";
+        const extension = fileName.includes(".") ? fileName.split(".").pop().toLowerCase() : "";
+        return SOUND_SYSTEM_AUDIO_EXTENSIONS.has(extension);
+      });
+
+    return Array.from(new Set(audioFiles)).sort((a, b) => a.localeCompare(b));
+  }
+
+  async promptMultipleAudioFiles(files, directory) {
+    const items = files.map((file, index) => {
+      const name = this.getCleanFileName(file);
+      return `
+        <label class="ss-multi-import-file">
+          <input type="checkbox" name="file" value="${index}" checked />
+          <span>${this.escape(name)}</span>
+        </label>
+      `;
+    }).join("");
+
+    const content = `
+      <form class="ss-multi-import">
+        <p class="notes">Dossier: ${this.escape(directory || "/")}</p>
+        <div class="ss-multi-import-actions">
+          <button type="button" data-action="select-all">Tout sÃ©lectionner</button>
+          <button type="button" data-action="select-none">Tout dÃ©sÃ©lectionner</button>
+        </div>
+        <div class="ss-multi-import-list">
+          ${items}
+        </div>
+      </form>
+    `;
+
+    return new Promise(resolve => {
+      let settled = false;
+      const finish = value => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+
+      new Dialog({
+        title: "SÃ©lectionner les sons Ã  importer",
+        content,
+        buttons: {
+          import: {
+            label: "Importer",
+            callback: html => {
+              const indexes = html.find("input[name='file']:checked").map((_, input) => Number(input.value)).get();
+              finish(indexes.map(index => files[index]).filter(Boolean));
+            }
+          },
+          cancel: {
+            label: "Annuler",
+            callback: () => finish(null)
+          }
+        },
+        default: "import",
+        render: html => {
+          html.find("[data-action='select-all']").on("click", () => {
+            html.find("input[name='file']").prop("checked", true);
+          });
+          html.find("[data-action='select-none']").on("click", () => {
+            html.find("input[name='file']").prop("checked", false);
+          });
+        },
+        close: () => finish(null)
+      }).render(true);
+    });
   }
 
   toggleSoundSelection(element) {
