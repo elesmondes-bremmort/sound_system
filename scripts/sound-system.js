@@ -350,6 +350,12 @@ class SoundSystem {
     this.renderNowPlaying();
   }
 
+  bringToTop() {
+    if (!this.win) return;
+    this.win.style.zIndex = "100000";
+    this.search?.focus?.();
+  }
+
   renderTree() {
     const selectedPlaylist = this.getSelectedPlaylist();
     const isSoundboard = !!selectedPlaylist && selectedPlaylist.mode === CONST.PLAYLIST_MODES.SIMULTANEOUS;
@@ -1547,8 +1553,7 @@ class SoundSystem {
     return [];
   }
 
-  getOriginVaultSelectedAudioItems() {
-    const ov = this.getOriginVaultWindow();
+  getOriginVaultSelectedAudioItems(ov = this.getOriginVaultWindow()) {
     console.debug("Origin Vault selectedItems", ov?.selectedItems);
     console.debug("Origin Vault allItems count", ov?.allItems?.length);
 
@@ -1567,6 +1572,24 @@ class SoundSystem {
         path: item.path,
         name: this.getCleanFileName(item.displayName || item.path)
       }));
+  }
+
+  async closeOriginVault(ov = this.getOriginVaultWindow()) {
+    try {
+      if (ov?.close) {
+        await ov.close();
+        return;
+      }
+    } catch {
+      try {
+        ov?.minimize?.();
+      } catch {}
+      return;
+    }
+
+    try {
+      ov?.minimize?.();
+    } catch {}
   }
 
   async importSound() {
@@ -1680,7 +1703,8 @@ class SoundSystem {
                 const playlist = game.playlists.get(targetId);
                 if (!playlist) throw new Error("Playlist introuvable");
 
-                const items = this.getOriginVaultSelectedAudioItems();
+                const ov = this.getOriginVaultWindow();
+                const items = this.getOriginVaultSelectedAudioItems(ov);
                 if (!items.length) {
                   ui.notifications?.warn("Aucun son audio sélectionné dans Origin Vault.");
                   finish(false);
@@ -1693,6 +1717,9 @@ class SoundSystem {
                 })));
 
                 ui.notifications?.info(`${items.length} sons importés depuis Origin Vault.`);
+                await this.closeOriginVault(ov);
+                this.render(true);
+                this.bringToTop?.();
                 this.renderAll();
                 finish(true);
               } catch (err) {
