@@ -1594,7 +1594,26 @@ class SoundSystem {
   }
 
   getDialogElement(dialog) {
-    return dialog?.element?.[0] ?? dialog?.element ?? document.getElementById("sound-system-import-vault-dialog");
+    return dialog?.element?.[0] ?? dialog?.element ?? document.getElementById("sound-system-origin-import");
+  }
+
+  getImportDialogWindow() {
+    const existing = Object.values(ui.windows ?? {}).find(app =>
+      app?.id === "sound-system-origin-import" ||
+      app?.appId === "sound-system-origin-import" ||
+      app?.options?.id === "sound-system-origin-import" ||
+      app?.title === "Importer depuis Origin Vault"
+    );
+
+    if (existing) {
+      this.importMultipleDialog = existing;
+      return existing;
+    }
+
+    if (this.importMultipleDialog && this.getDialogElement(this.importMultipleDialog)) return this.importMultipleDialog;
+
+    this.importMultipleDialog = null;
+    return null;
   }
 
   bringImportDialogToTop(dialog = this.importMultipleDialog) {
@@ -1604,7 +1623,7 @@ class SoundSystem {
     const el = this.getDialogElement(dialog);
     if (!el) return;
 
-    el.id = "sound-system-import-vault-dialog";
+    el.id = "sound-system-origin-import";
     el.style.zIndex = "100000";
   }
 
@@ -1661,12 +1680,14 @@ class SoundSystem {
   async importMultipleSounds() {
     if (!game.user.isGM) return;
 
-    if (this.importMultipleDialog) {
-      this.bringImportDialogToTop();
+    const existingDialog = this.getImportDialogWindow();
+    if (existingDialog) {
+      existingDialog.render?.(true);
+      this.bringImportDialogToTop(existingDialog);
       return;
     }
 
-    document.getElementById("sound-system-import-vault-dialog")?.remove();
+    document.getElementById("sound-system-origin-import")?.remove();
 
     const playlists = game.playlists.contents;
     if (!playlists.length) {
@@ -1693,13 +1714,18 @@ class SoundSystem {
 
     if (!targetId) return;
 
-    if (this.importMultipleDialog) {
-      this.bringImportDialogToTop();
+    const existingDialogAfterPrompt = this.getImportDialogWindow();
+    if (existingDialogAfterPrompt) {
+      existingDialogAfterPrompt.render?.(true);
+      this.bringImportDialogToTop(existingDialogAfterPrompt);
       return;
     }
 
     const openedVault = this.openOriginVault();
     if (openedVault?.selectedItems !== undefined || openedVault?.allItems !== undefined) this.originVaultApp = openedVault;
+
+    const targetPlaylist = game.playlists.get(targetId);
+    const targetPlaylistName = this.escape(targetPlaylist?.name ?? "Playlist introuvable");
 
     const cacheActiveVault = () => {
       const ov = this.getOriginVaultWindow();
@@ -1710,7 +1736,7 @@ class SoundSystem {
     };
     document.addEventListener("click", trackVaultSelection, true);
     window.setTimeout(cacheActiveVault, 0);
-    document.getElementById("sound-system-import-vault-dialog")?.remove();
+    document.getElementById("sound-system-origin-import")?.remove();
 
     return new Promise(resolve => {
       let settled = false;
@@ -1722,13 +1748,31 @@ class SoundSystem {
       };
 
       let dialog;
+      let selectionCounterInterval = null;
       const clearDialog = () => {
         if (this.importMultipleDialog === dialog) this.importMultipleDialog = null;
+        if (selectionCounterInterval) {
+          window.clearInterval(selectionCounterInterval);
+          selectionCounterInterval = null;
+        }
+      };
+      const updateSelectionCounter = () => {
+        const ov = this.getOriginVaultWindow();
+        const count = this.getOriginVaultSelectedIds(ov?.selectedItems).length;
+        const el = document.querySelector("#sound-system-origin-import [data-ss-origin-selection-count]");
+        if (el) el.textContent = `${count} son${count > 1 ? "s" : ""} actuellement sélectionné${count > 1 ? "s" : ""}`;
       };
 
       dialog = new Dialog({
         title: "Importer depuis Origin Vault",
-        content: "<p>Sélectionne tes sons dans Origin Vault, puis clique Importer la sélection.</p>",
+        content: `
+          <div class="ss-origin-import-dialog">
+            <div class="notes">Playlist cible</div>
+            <div style="font-size: 1.35rem; font-weight: 700; margin: 0.35rem 0 0.75rem;">📀 ${targetPlaylistName}</div>
+            <p>Sélectionne ensuite tes sons dans Origin Vault puis clique Importer.</p>
+            <p data-ss-origin-selection-count>0 son actuellement sélectionné</p>
+          </div>
+        `,
         buttons: {
           import: {
             label: "Importer la sélection",
@@ -1775,11 +1819,15 @@ class SoundSystem {
           clearDialog();
           finish(false);
         }
-      }, { id: "sound-system-import-vault-dialog" });
+      }, { id: "sound-system-origin-import" });
 
       this.importMultipleDialog = dialog;
       dialog.render(true);
-      window.setTimeout(() => this.bringImportDialogToTop(dialog), 50);
+      window.setTimeout(() => {
+        this.bringImportDialogToTop(dialog);
+        updateSelectionCounter();
+      }, 50);
+      selectionCounterInterval = window.setInterval(updateSelectionCounter, 400);
     });
 
   }
