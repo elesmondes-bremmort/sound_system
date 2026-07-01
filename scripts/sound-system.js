@@ -35,6 +35,10 @@ class SoundSystem {
     this.timedLoops = SoundSystem.timedLoops; // key -> intervalId
     this.loopDelays = this.loadLoopDelays();
     this.importMultipleDialog = null;
+    this.importMultiplePanel = null;
+    this.importMultipleCounterInterval = null;
+    this.importVaultSelectionHandler = null;
+    this.contextMenuCloseHandler = null;
     this.clearPersistedActiveTimers();
   }
 
@@ -130,7 +134,8 @@ class SoundSystem {
             </div>
           </form>
         `,
-        callback: html => Number(html.find("input[name='value']").val())
+        callback: html => Number(html.find("input[name='value']").val()),
+        render: html => this.layerSoundSystemDialog(html)
       });
       if (!seconds || Number.isNaN(seconds)) return;
       this.loopDelays[key] = Number(seconds);
@@ -339,6 +344,7 @@ class SoundSystem {
 
     document.getElementById(SOUND_SYSTEM_ID)?.remove();
     this.removeContextMenu();
+    this.closeImportPanel();
 
     SoundSystem.instance = null;
   }
@@ -355,6 +361,15 @@ class SoundSystem {
     if (!this.win) return;
     this.win.style.zIndex = "100000";
     this.search?.focus?.();
+  }
+
+  layerSoundSystemDialog(html) {
+    const root = html?.[0] ?? html;
+    const app = root?.closest?.(".app, .window-app, .dialog") ?? root;
+    if (!app?.classList) return;
+
+    app.classList.add("sound-system-dialog");
+    app.style.zIndex = "100030";
   }
 
   renderTree() {
@@ -698,7 +713,8 @@ class SoundSystem {
 
     const confirmed = await Dialog.confirm({
       title: "Supprimer le preset",
-      content: `<p>Supprimer <strong>${this.escape(preset.name)}</strong> ?</p>`
+      content: `<p>Supprimer <strong>${this.escape(preset.name)}</strong> ?</p>`,
+      render: html => this.layerSoundSystemDialog(html)
     });
 
     if (!confirmed) return;
@@ -842,7 +858,8 @@ class SoundSystem {
               </div>
             </form>
           `,
-          callback: html => Number(html.find("input[name='value']").val())
+          callback: html => Number(html.find("input[name='value']").val()),
+          render: html => this.layerSoundSystemDialog(html)
         });
 
         if (!seconds || Number.isNaN(seconds)) return;
@@ -1303,7 +1320,8 @@ class SoundSystem {
   async deletePlaylist(playlist) {
     const confirmed = await Dialog.confirm({
       title: "Supprimer la playlist",
-      content: `<p>Supprimer <strong>${this.escape(playlist.name)}</strong> et toutes ses pistes ?</p>`
+      content: `<p>Supprimer <strong>${this.escape(playlist.name)}</strong> et toutes ses pistes ?</p>`,
+      render: html => this.layerSoundSystemDialog(html)
     });
 
     if (!confirmed) return;
@@ -1319,7 +1337,8 @@ class SoundSystem {
   async deleteSound(sound) {
     const confirmed = await Dialog.confirm({
       title: "Supprimer la piste",
-      content: `<p>Supprimer <strong>${this.escape(sound.name)}</strong> ?</p>`
+      content: `<p>Supprimer <strong>${this.escape(sound.name)}</strong> ?</p>`,
+      render: html => this.layerSoundSystemDialog(html)
     });
 
     if (!confirmed) return;
@@ -1348,12 +1367,14 @@ class SoundSystem {
           </div>
         </form>
       `,
-      callback: html => html.find("input[name='value']").val()?.trim()
+      callback: html => html.find("input[name='value']").val()?.trim(),
+      render: html => this.layerSoundSystemDialog(html)
     });
   }
 
   showContextMenu(x, y, items) {
     this.removeContextMenu();
+    document.querySelectorAll(".ss-context-menu").forEach(menu => menu.remove());
 
     const menu = document.createElement("div");
     menu.className = "ss-context-menu";
@@ -1366,8 +1387,11 @@ class SoundSystem {
 
     document.body.appendChild(menu);
 
-    menu.style.left = `${x}px`;
-    menu.style.top = `${y}px`;
+    const rect = menu.getBoundingClientRect();
+    const left = Math.min(x, window.innerWidth - rect.width - 8);
+    const top = Math.min(y, window.innerHeight - rect.height - 8);
+    menu.style.left = `${Math.max(8, left)}px`;
+    menu.style.top = `${Math.max(8, top)}px`;
 
     menu.addEventListener("click", async ev => {
       const btn = ev.target.closest("button[data-index]");
@@ -1380,11 +1404,21 @@ class SoundSystem {
     });
 
     this.contextMenu = menu;
+    this.contextMenuCloseHandler = ev => {
+      if (!menu.contains(ev.target)) this.removeContextMenu();
+    };
+    window.setTimeout(() => document.addEventListener("click", this.contextMenuCloseHandler, { once: true }), 0);
   }
 
   removeContextMenu() {
+    if (this.contextMenuCloseHandler) {
+      document.removeEventListener("click", this.contextMenuCloseHandler);
+      this.contextMenuCloseHandler = null;
+    }
+
     this.contextMenu?.remove();
     this.contextMenu = null;
+    document.querySelectorAll(".ss-context-menu").forEach(menu => menu.remove());
   }
 
   activateWindowDrag() {
@@ -1504,6 +1538,7 @@ class SoundSystem {
       existing.render?.(true);
       existing.bringToTop?.();
       existing.maximize?.();
+      this.setAppZIndex(existing, 100000);
       this.originVaultApp = existing;
       return existing;
     }
@@ -1518,6 +1553,11 @@ class SoundSystem {
     return false;
   }
 
+  setAppZIndex(app, zIndex) {
+    const el = app?.element?.[0] ?? app?.element;
+    if (el?.style) el.style.zIndex = String(zIndex);
+  }
+
   getOriginVaultWindow() {
     const app = ui.activeWindow;
     if (
@@ -1528,6 +1568,17 @@ class SoundSystem {
     ) {
       this.originVaultApp = app;
       return app;
+    }
+
+    const openApp = Object.values(ui.windows ?? {}).find(w =>
+      w?.selectedItems !== undefined ||
+      w?.allItems !== undefined ||
+      w?.options?.id === "origin-vault-main" ||
+      w?.constructor?.name === "MainWindow"
+    );
+    if (openApp) {
+      this.originVaultApp = openApp;
+      return openApp;
     }
 
     return this.originVaultApp?.selectedItems !== undefined || this.originVaultApp?.allItems !== undefined
@@ -1627,6 +1678,40 @@ class SoundSystem {
     el.style.zIndex = "100000";
   }
 
+  getImportPanel() {
+    const panel = document.getElementById("sound-system-origin-import-panel");
+    if (panel) {
+      this.importMultiplePanel = panel;
+      return panel;
+    }
+
+    if (this.importMultiplePanel?.isConnected) return this.importMultiplePanel;
+    this.importMultiplePanel = null;
+    return null;
+  }
+
+  bringImportPanelToTop(panel = this.getImportPanel()) {
+    if (!panel) return;
+    panel.style.zIndex = "100010";
+    panel.focus?.();
+  }
+
+  closeImportPanel() {
+    if (this.importVaultSelectionHandler) {
+      document.removeEventListener("click", this.importVaultSelectionHandler, true);
+      this.importVaultSelectionHandler = null;
+    }
+
+    if (this.importMultipleCounterInterval) {
+      window.clearInterval(this.importMultipleCounterInterval);
+      this.importMultipleCounterInterval = null;
+    }
+
+    this.importMultiplePanel?.remove?.();
+    document.getElementById("sound-system-origin-import-panel")?.remove();
+    this.importMultiplePanel = null;
+  }
+
   async importSound() {
     const playlists = game.playlists.contents;
     if (!playlists.length) {
@@ -1648,7 +1733,8 @@ class SoundSystem {
     const choice = await Dialog.prompt({
       title: "Importer un son",
       content: html,
-      callback: el => el.find("select[name='playlist']").val()
+      callback: el => el.find("select[name='playlist']").val(),
+      render: html => this.layerSoundSystemDialog(html)
     });
 
     if (!choice) return;
@@ -1680,13 +1766,20 @@ class SoundSystem {
   async importMultipleSounds() {
     if (!game.user.isGM) return;
 
-    const existingDialog = this.getImportDialogWindow();
-    if (existingDialog) {
-      existingDialog.render?.(true);
-      this.bringImportDialogToTop(existingDialog);
+    const existingImportWindow = this.getImportDialogWindow();
+    if (existingImportWindow) {
+      existingImportWindow.render?.(true);
+      this.bringImportDialogToTop(existingImportWindow);
       return;
     }
 
+    const existingPanel = this.getImportPanel();
+    if (existingPanel) {
+      this.bringImportPanelToTop(existingPanel);
+      return;
+    }
+
+    document.getElementById("sound-system-origin-import-panel")?.remove();
     document.getElementById("sound-system-origin-import")?.remove();
 
     const playlists = game.playlists.contents;
@@ -1709,127 +1802,119 @@ class SoundSystem {
     const targetId = await Dialog.prompt({
       title: "Importer plusieurs sons",
       content: html,
-      callback: el => el.find("select[name='playlist']").val()
+      callback: el => el.find("select[name='playlist']").val(),
+      render: html => this.layerSoundSystemDialog(html)
     });
 
     if (!targetId) return;
 
-    const existingDialogAfterPrompt = this.getImportDialogWindow();
-    if (existingDialogAfterPrompt) {
-      existingDialogAfterPrompt.render?.(true);
-      this.bringImportDialogToTop(existingDialogAfterPrompt);
+    const existingImportWindowAfterPrompt = this.getImportDialogWindow();
+    if (existingImportWindowAfterPrompt) {
+      existingImportWindowAfterPrompt.render?.(true);
+      this.bringImportDialogToTop(existingImportWindowAfterPrompt);
       return;
     }
 
+    const existingPanelAfterPrompt = this.getImportPanel();
+    if (existingPanelAfterPrompt) {
+      this.bringImportPanelToTop(existingPanelAfterPrompt);
+      return;
+    }
+
+    if (this.win) this.win.style.zIndex = "50";
+
     const openedVault = this.openOriginVault();
     if (openedVault?.selectedItems !== undefined || openedVault?.allItems !== undefined) this.originVaultApp = openedVault;
+    this.setAppZIndex(this.getOriginVaultWindow(), 100000);
 
     const targetPlaylist = game.playlists.get(targetId);
-    const targetPlaylistName = this.escape(targetPlaylist?.name ?? "Playlist introuvable");
+    if (!targetPlaylist) {
+      ui.notifications?.error("Playlist introuvable.");
+      return;
+    }
 
     const cacheActiveVault = () => {
       const ov = this.getOriginVaultWindow();
-      if (ov) this.originVaultApp = ov;
+      if (ov) {
+        this.originVaultApp = ov;
+        this.setAppZIndex(ov, 100000);
+      }
     };
     const trackVaultSelection = ev => {
       if (ev.target?.closest?.(".asset-card")) window.setTimeout(cacheActiveVault, 0);
     };
+    this.importVaultSelectionHandler = trackVaultSelection;
     document.addEventListener("click", trackVaultSelection, true);
     window.setTimeout(cacheActiveVault, 0);
-    document.getElementById("sound-system-origin-import")?.remove();
 
-    return new Promise(resolve => {
-      let settled = false;
-      const finish = value => {
-        if (settled) return;
-        settled = true;
-        document.removeEventListener("click", trackVaultSelection, true);
-        resolve(value);
-      };
+    const panel = document.createElement("div");
+    panel.id = "sound-system-origin-import-panel";
+    panel.className = "ss-origin-import-panel";
+    panel.tabIndex = -1;
+    panel.innerHTML = `
+      <div class="ss-origin-import-title">Importer depuis Origin Vault</div>
+      <div class="ss-origin-import-label">Playlist cible</div>
+      <div class="ss-origin-import-playlist">📀 ${this.escape(targetPlaylist.name)}</div>
+      <p>Sélectionne tes sons dans Origin Vault puis clique Importer.</p>
+      <p class="ss-origin-import-count" data-ss-origin-selection-count>0 son actuellement sélectionné</p>
+      <div class="ss-origin-import-actions">
+        <button type="button" data-action="import">Importer la sélection</button>
+        <button type="button" data-action="cancel">Annuler</button>
+      </div>
+    `;
+    document.body.appendChild(panel);
+    this.importMultiplePanel = panel;
+    this.bringImportPanelToTop(panel);
 
-      let dialog;
-      let selectionCounterInterval = null;
-      const clearDialog = () => {
-        if (this.importMultipleDialog === dialog) this.importMultipleDialog = null;
-        if (selectionCounterInterval) {
-          window.clearInterval(selectionCounterInterval);
-          selectionCounterInterval = null;
-        }
-      };
-      const updateSelectionCounter = () => {
+    const updateSelectionCounter = () => {
+      const ov = this.getOriginVaultWindow();
+      const count = this.getOriginVaultSelectedIds(ov?.selectedItems).length;
+      const el = panel.querySelector("[data-ss-origin-selection-count]");
+      if (el) el.textContent = `${count} son${count > 1 ? "s" : ""} actuellement sélectionné${count > 1 ? "s" : ""}`;
+    };
+
+    const closePanel = () => {
+      this.closeImportPanel();
+    };
+
+    updateSelectionCounter();
+    this.importMultipleCounterInterval = window.setInterval(updateSelectionCounter, 400);
+
+    panel.addEventListener("click", async ev => {
+      const action = ev.target.closest("[data-action]")?.dataset.action;
+      if (!action) return;
+
+      if (action === "cancel") {
+        closePanel();
+        return;
+      }
+
+      if (action !== "import") return;
+
+      try {
         const ov = this.getOriginVaultWindow();
-        const count = this.getOriginVaultSelectedIds(ov?.selectedItems).length;
-        const el = document.querySelector("#sound-system-origin-import [data-ss-origin-selection-count]");
-        if (el) el.textContent = `${count} son${count > 1 ? "s" : ""} actuellement sélectionné${count > 1 ? "s" : ""}`;
-      };
-
-      dialog = new Dialog({
-        title: "Importer depuis Origin Vault",
-        content: `
-          <div class="ss-origin-import-dialog">
-            <div class="notes">Playlist cible</div>
-            <div style="font-size: 1.35rem; font-weight: 700; margin: 0.35rem 0 0.75rem;">📀 ${targetPlaylistName}</div>
-            <p>Sélectionne ensuite tes sons dans Origin Vault puis clique Importer.</p>
-            <p data-ss-origin-selection-count>0 son actuellement sélectionné</p>
-          </div>
-        `,
-        buttons: {
-          import: {
-            label: "Importer la sélection",
-            callback: async () => {
-              try {
-                const playlist = game.playlists.get(targetId);
-                if (!playlist) throw new Error("Playlist introuvable");
-
-                const ov = this.getOriginVaultWindow();
-                const items = this.getOriginVaultSelectedAudioItems(ov);
-                if (!items.length) {
-                  ui.notifications?.warn("Aucun son audio sélectionné dans Origin Vault.");
-                  return false;
-                }
-
-                await playlist.createEmbeddedDocuments("PlaylistSound", items.map(item => ({
-                  name: item.name,
-                  path: item.path
-                })));
-
-                ui.notifications?.info(`${items.length} sons importés depuis Origin Vault.`);
-                await this.closeOriginVault(ov);
-                finish(true);
-                dialog.close?.();
-                clearDialog();
-                this.render(true);
-                this.bringToTop?.();
-                this.renderAll();
-                return true;
-              } catch (err) {
-                console.error("sound_system | Erreur import Origin Vault", err);
-                ui.notifications?.error("Erreur lors de l'import depuis Origin Vault.");
-                return false;
-              }
-            }
-          },
-          cancel: {
-            label: "Annuler",
-            callback: () => finish(false)
-          }
-        },
-        default: "import",
-        close: () => {
-          clearDialog();
-          finish(false);
+        const items = this.getOriginVaultSelectedAudioItems(ov);
+        if (!items.length) {
+          ui.notifications?.warn("Aucun son audio sélectionné dans Origin Vault.");
+          return;
         }
-      }, { id: "sound-system-origin-import" });
 
-      this.importMultipleDialog = dialog;
-      dialog.render(true);
-      window.setTimeout(() => {
-        this.bringImportDialogToTop(dialog);
-        updateSelectionCounter();
-      }, 50);
-      selectionCounterInterval = window.setInterval(updateSelectionCounter, 400);
+        await targetPlaylist.createEmbeddedDocuments("PlaylistSound", items.map(item => ({
+          name: item.name,
+          path: item.path
+        })));
+
+        ui.notifications?.info(`${items.length} sons importés depuis Origin Vault.`);
+        await this.closeOriginVault(ov);
+        closePanel();
+        this.render(true);
+        this.renderAll();
+        this.bringToTop?.();
+      } catch (err) {
+        console.error("sound_system | Erreur import Origin Vault", err);
+        ui.notifications?.error("Erreur lors de l'import depuis Origin Vault.");
+      }
     });
-
   }
 
   getDirectoryFromPath(path) {
@@ -1911,6 +1996,7 @@ class SoundSystem {
         },
         default: "import",
         render: html => {
+          this.layerSoundSystemDialog(html);
           html.find("[data-action='select-all']").on("click", () => {
             html.find("input[name='file']").prop("checked", true);
           });
@@ -1966,7 +2052,8 @@ class SoundSystem {
     const targetId = await Dialog.prompt({
       title: "Déplacer les sons",
       content: html,
-      callback: el => el.find("select[name='playlist']").val()
+      callback: el => el.find("select[name='playlist']").val(),
+      render: html => this.layerSoundSystemDialog(html)
     });
 
     if (!targetId) return;
@@ -2019,7 +2106,8 @@ class SoundSystem {
     const targetId = await Dialog.prompt({
       title: "Copier les sons",
       content: html,
-      callback: el => el.find("select[name='playlist']").val()
+      callback: el => el.find("select[name='playlist']").val(),
+      render: html => this.layerSoundSystemDialog(html)
     });
 
     if (!targetId) return;
@@ -2052,7 +2140,8 @@ class SoundSystem {
     const count = this.selectedSoundKeys.size;
     const confirmed = await Dialog.confirm({
       title: "Supprimer les sons",
-      content: `<p>Supprimer <strong>${count} son${count > 1 ? "s" : ""}</strong> ?</p>`
+      content: `<p>Supprimer <strong>${count} son${count > 1 ? "s" : ""}</strong> ?</p>`,
+      render: html => this.layerSoundSystemDialog(html)
     });
 
     if (!confirmed) return;

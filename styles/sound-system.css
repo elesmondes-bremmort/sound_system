@@ -405,7 +405,7 @@
 
 .ss-context-menu {
   position: fixed;
-  z-index: 100;
+  z-index: 100020;
   min-width: 190px;
   background: rgba(18, 16, 13, 0.98);
   border: 1px solid #8b6f3d;
@@ -427,11 +427,77 @@
 }
 
 .ss-context-menu button:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(217, 164, 65, 0.22);
+  color: #fff3cf;
 }
 
 .ss-context-menu button.danger {
   color: #ff8b8b;
+}
+
+.ss-origin-import-panel {
+  position: fixed;
+  top: 96px;
+  right: 32px;
+  z-index: 100010;
+  width: min(360px, calc(100vw - 48px));
+  padding: 14px;
+  color: #f2e4c7;
+  background: rgba(18, 16, 13, 0.98);
+  border: 1px solid #d1b250;
+  border-radius: 8px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55);
+  font-family: var(--font-primary);
+}
+
+.ss-origin-import-title {
+  margin-bottom: 10px;
+  color: #ffe2a0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.ss-origin-import-label {
+  color: #c8b996;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.ss-origin-import-playlist {
+  margin: 4px 0 10px;
+  color: #fff3cf;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.ss-origin-import-count {
+  margin: 10px 0;
+  color: #a8d8ff;
+  font-weight: 700;
+}
+
+.ss-origin-import-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.ss-origin-import-actions button {
+  padding: 7px 10px;
+  border: 1px solid #8b6f3d;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #f2e4c7;
+  cursor: pointer;
+}
+
+.ss-origin-import-actions button:hover {
+  background: rgba(217, 164, 65, 0.2);
+  border-color: #d1b250;
+}
+
+.sound-system-dialog {
+  z-index: 100030 !important;
 }
 
 #sound-system .ss-selection-bar {
