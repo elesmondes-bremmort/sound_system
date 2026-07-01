@@ -1486,6 +1486,58 @@ class SoundSystem {
     ui.notifications.warn("Opus n'est pas ouvert. Ouvre-le une première fois depuis dScryb / Origin Vault.");
   }
 
+  openOriginVault() {
+    const existing = Object.values(ui.windows ?? {}).find(w =>
+      w?.title?.toLowerCase?.().includes("origin vault") ||
+      w?.constructor?.name?.toLowerCase?.().includes("vault") ||
+      w?.options?.classes?.some?.(c => String(c).toLowerCase().includes("origin"))
+    );
+
+    if (existing) {
+      existing.render?.(true);
+      existing.bringToTop?.();
+      existing.maximize?.();
+      this.originVaultApp = existing;
+      return existing;
+    }
+
+    const vaultButton = document.querySelector('[title*="Origin Vault"], [aria-label*="Origin Vault"], [data-tooltip*="Origin Vault"], .fa-vault');
+    if (vaultButton) {
+      (vaultButton.closest?.("button, a, [role='button']") ?? vaultButton).click?.();
+      return true;
+    }
+
+    ui.notifications?.warn("Ouvre Origin Vault une première fois.");
+    return false;
+  }
+
+  getOriginVaultSelectedAudioItems() {
+    const selectedIds = [...document.querySelectorAll(".asset-card.selected")]
+      .map(el => el.dataset.itemId)
+      .filter(Boolean);
+
+    if (!selectedIds.length) return [];
+
+    const vaultApp = ui.activeWindow?.library?._allItemsArray
+      ? ui.activeWindow
+      : this.originVaultApp?.library?._allItemsArray
+        ? this.originVaultApp
+        : Object.values(ui.windows ?? {}).find(app => Array.isArray(app?.library?._allItemsArray));
+
+    const allItems = Array.isArray(vaultApp?.library?._allItemsArray) ? vaultApp.library._allItemsArray : [];
+    const selectedIdSet = new Set(selectedIds.map(id => String(id)));
+    const audioPathPattern = /\.(mp3|ogg|wav|flac|m4a|webm)(\?|#|$)/i;
+
+    return allItems
+      .filter(item => selectedIdSet.has(String(item?.id)))
+      .filter(item => audioPathPattern.test(String(item?.path ?? "")))
+      .map(item => ({
+        id: item.id,
+        path: item.path,
+        name: this.getCleanFileName(item.displayName || item.path)
+      }));
+  }
+
   async importSound() {
     const playlists = game.playlists.contents;
     if (!playlists.length) {
@@ -1545,11 +1597,6 @@ class SoundSystem {
       return;
     }
 
-    if (!FilePicker?.browse) {
-      ui.notifications?.error("Import multiple indisponible: FilePicker.browse est introuvable.");
-      return;
-    }
-
     const html = `
       <form>
         <div class="form-group">
@@ -1569,47 +1616,69 @@ class SoundSystem {
 
     if (!targetId) return;
 
-    try {
-      let picker;
-      picker = new FilePicker({
-        type: "audio",
-        callback: async path => {
-          try {
-            const playlist = game.playlists.get(targetId);
-            if (!playlist) throw new Error("Playlist introuvable");
+    const openedVault = this.openOriginVault();
+    if (openedVault?.library?._allItemsArray) this.originVaultApp = openedVault;
 
-            const source = picker?.activeSource ?? picker?.source ?? "data";
-            const directory = this.getDirectoryFromPath(path);
-            const audioFiles = await this.getAudioFilesFromDirectory(source, directory);
+    const cacheActiveVault = () => {
+      if (ui.activeWindow?.library?._allItemsArray) this.originVaultApp = ui.activeWindow;
+    };
+    const trackVaultSelection = ev => {
+      if (ev.target?.closest?.(".asset-card")) window.setTimeout(cacheActiveVault, 0);
+    };
+    document.addEventListener("click", trackVaultSelection, true);
 
-            if (!audioFiles.length) {
-              ui.notifications?.warn("Aucun fichier audio trouvÃ© dans ce dossier.");
-              return;
+    return new Promise(resolve => {
+      let settled = false;
+      const finish = value => {
+        if (settled) return;
+        settled = true;
+        document.removeEventListener("click", trackVaultSelection, true);
+        resolve(value);
+      };
+
+      new Dialog({
+        title: "Sound System",
+        content: "<p>Sélectionne tes sons dans Origin Vault, puis clique Importer la sélection.</p>",
+        buttons: {
+          import: {
+            label: "Importer la sélection",
+            callback: async () => {
+              try {
+                const playlist = game.playlists.get(targetId);
+                if (!playlist) throw new Error("Playlist introuvable");
+
+                const items = this.getOriginVaultSelectedAudioItems();
+                if (!items.length) {
+                  ui.notifications?.warn("Aucun son audio sélectionné dans Origin Vault.");
+                  finish(false);
+                  return;
+                }
+
+                await playlist.createEmbeddedDocuments("PlaylistSound", items.map(item => ({
+                  name: item.name,
+                  path: item.path
+                })));
+
+                ui.notifications?.info(`${items.length} sons importés depuis Origin Vault.`);
+                this.renderAll();
+                finish(true);
+              } catch (err) {
+                console.error("sound_system | Erreur import Origin Vault", err);
+                ui.notifications?.error("Erreur lors de l'import depuis Origin Vault.");
+                finish(false);
+              }
             }
-
-            const selectedFiles = await this.promptMultipleAudioFiles(audioFiles, directory);
-            if (!selectedFiles?.length) return;
-
-            const soundsData = selectedFiles.map(filePath => ({
-              name: this.getCleanFileName(filePath),
-              path: filePath
-            }));
-
-            await playlist.createEmbeddedDocuments("PlaylistSound", soundsData);
-            ui.notifications?.info(`${soundsData.length} sons importÃ©s.`);
-            this.renderAll();
-          } catch (err) {
-            console.error("sound_system | Erreur import multiple", err);
-            ui.notifications?.error("Erreur lors de l'import multiple des sons.");
+          },
+          cancel: {
+            label: "Annuler",
+            callback: () => finish(false)
           }
-        }
-      });
+        },
+        default: "import",
+        close: () => finish(false)
+      }).render(true);
+    });
 
-      picker.render(true);
-    } catch (err) {
-      console.error("sound_system | FilePicker import multiple", err);
-      ui.notifications?.error("Impossible d'ouvrir le sÃ©lecteur de fichiers.");
-    }
   }
 
   getDirectoryFromPath(path) {
