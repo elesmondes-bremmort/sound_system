@@ -1511,20 +1511,51 @@ class SoundSystem {
     return false;
   }
 
+  getOriginVaultWindow() {
+    const app = ui.activeWindow;
+    if (
+      app?.options?.id === "origin-vault-main" ||
+      app?.constructor?.name === "MainWindow" ||
+      app?.selectedItems !== undefined ||
+      app?.allItems !== undefined
+    ) {
+      this.originVaultApp = app;
+      return app;
+    }
+
+    return this.originVaultApp?.selectedItems !== undefined || this.originVaultApp?.allItems !== undefined
+      ? this.originVaultApp
+      : null;
+  }
+
+  getOriginVaultSelectedIds(selectedItems) {
+    if (!selectedItems) return [];
+    const getId = value => {
+      if (value && typeof value === "object") return value.id ?? value._id ?? value.itemId;
+      return value;
+    };
+
+    if (selectedItems instanceof Set) return Array.from(selectedItems).map(getId).filter(Boolean);
+    if (Array.isArray(selectedItems)) return selectedItems.map(getId).filter(Boolean);
+    if (typeof selectedItems === "object") {
+      const values = Object.values(selectedItems);
+      const valueIds = values.map(getId).filter(Boolean);
+      if (valueIds.some(value => typeof value === "string" || typeof value === "number")) return valueIds;
+      return Object.keys(selectedItems);
+    }
+
+    return [];
+  }
+
   getOriginVaultSelectedAudioItems() {
-    const selectedIds = [...document.querySelectorAll(".asset-card.selected")]
-      .map(el => el.dataset.itemId)
-      .filter(Boolean);
+    const ov = this.getOriginVaultWindow();
+    console.debug("Origin Vault selectedItems", ov?.selectedItems);
+    console.debug("Origin Vault allItems count", ov?.allItems?.length);
 
-    if (!selectedIds.length) return [];
+    const selectedIds = this.getOriginVaultSelectedIds(ov?.selectedItems).filter(Boolean);
+    const allItems = Array.isArray(ov?.allItems) ? ov.allItems : [];
+    if (!selectedIds.length || !allItems.length) return [];
 
-    const vaultApp = ui.activeWindow?.library?._allItemsArray
-      ? ui.activeWindow
-      : this.originVaultApp?.library?._allItemsArray
-        ? this.originVaultApp
-        : Object.values(ui.windows ?? {}).find(app => Array.isArray(app?.library?._allItemsArray));
-
-    const allItems = Array.isArray(vaultApp?.library?._allItemsArray) ? vaultApp.library._allItemsArray : [];
     const selectedIdSet = new Set(selectedIds.map(id => String(id)));
     const audioPathPattern = /\.(mp3|ogg|wav|flac|m4a|webm)(\?|#|$)/i;
 
@@ -1617,15 +1648,17 @@ class SoundSystem {
     if (!targetId) return;
 
     const openedVault = this.openOriginVault();
-    if (openedVault?.library?._allItemsArray) this.originVaultApp = openedVault;
+    if (openedVault?.selectedItems !== undefined || openedVault?.allItems !== undefined) this.originVaultApp = openedVault;
 
     const cacheActiveVault = () => {
-      if (ui.activeWindow?.library?._allItemsArray) this.originVaultApp = ui.activeWindow;
+      const ov = this.getOriginVaultWindow();
+      if (ov) this.originVaultApp = ov;
     };
     const trackVaultSelection = ev => {
       if (ev.target?.closest?.(".asset-card")) window.setTimeout(cacheActiveVault, 0);
     };
     document.addEventListener("click", trackVaultSelection, true);
+    window.setTimeout(cacheActiveVault, 0);
 
     return new Promise(resolve => {
       let settled = false;
