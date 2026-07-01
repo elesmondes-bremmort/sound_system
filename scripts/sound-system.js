@@ -34,6 +34,7 @@ class SoundSystem {
     this.viewMode = this.loadViewMode();
     this.timedLoops = SoundSystem.timedLoops; // key -> intervalId
     this.loopDelays = this.loadLoopDelays();
+    this.importMultipleDialog = null;
     this.clearPersistedActiveTimers();
   }
 
@@ -1592,6 +1593,21 @@ class SoundSystem {
     } catch {}
   }
 
+  getDialogElement(dialog) {
+    return dialog?.element?.[0] ?? dialog?.element ?? document.getElementById("sound-system-import-vault-dialog");
+  }
+
+  bringImportDialogToTop(dialog = this.importMultipleDialog) {
+    if (!dialog) return;
+
+    dialog.bringToTop?.();
+    const el = this.getDialogElement(dialog);
+    if (!el) return;
+
+    el.id = "sound-system-import-vault-dialog";
+    el.style.zIndex = "100000";
+  }
+
   async importSound() {
     const playlists = game.playlists.contents;
     if (!playlists.length) {
@@ -1645,6 +1661,13 @@ class SoundSystem {
   async importMultipleSounds() {
     if (!game.user.isGM) return;
 
+    if (this.importMultipleDialog) {
+      this.bringImportDialogToTop();
+      return;
+    }
+
+    document.getElementById("sound-system-import-vault-dialog")?.remove();
+
     const playlists = game.playlists.contents;
     if (!playlists.length) {
       ui.notifications?.error("Aucune playlist disponible pour l'import.");
@@ -1670,6 +1693,11 @@ class SoundSystem {
 
     if (!targetId) return;
 
+    if (this.importMultipleDialog) {
+      this.bringImportDialogToTop();
+      return;
+    }
+
     const openedVault = this.openOriginVault();
     if (openedVault?.selectedItems !== undefined || openedVault?.allItems !== undefined) this.originVaultApp = openedVault;
 
@@ -1682,6 +1710,7 @@ class SoundSystem {
     };
     document.addEventListener("click", trackVaultSelection, true);
     window.setTimeout(cacheActiveVault, 0);
+    document.getElementById("sound-system-import-vault-dialog")?.remove();
 
     return new Promise(resolve => {
       let settled = false;
@@ -1692,8 +1721,13 @@ class SoundSystem {
         resolve(value);
       };
 
-      new Dialog({
-        title: "Sound System",
+      let dialog;
+      const clearDialog = () => {
+        if (this.importMultipleDialog === dialog) this.importMultipleDialog = null;
+      };
+
+      dialog = new Dialog({
+        title: "Importer depuis Origin Vault",
         content: "<p>Sélectionne tes sons dans Origin Vault, puis clique Importer la sélection.</p>",
         buttons: {
           import: {
@@ -1707,8 +1741,7 @@ class SoundSystem {
                 const items = this.getOriginVaultSelectedAudioItems(ov);
                 if (!items.length) {
                   ui.notifications?.warn("Aucun son audio sélectionné dans Origin Vault.");
-                  finish(false);
-                  return;
+                  return false;
                 }
 
                 await playlist.createEmbeddedDocuments("PlaylistSound", items.map(item => ({
@@ -1718,14 +1751,17 @@ class SoundSystem {
 
                 ui.notifications?.info(`${items.length} sons importés depuis Origin Vault.`);
                 await this.closeOriginVault(ov);
+                finish(true);
+                dialog.close?.();
+                clearDialog();
                 this.render(true);
                 this.bringToTop?.();
                 this.renderAll();
-                finish(true);
+                return true;
               } catch (err) {
                 console.error("sound_system | Erreur import Origin Vault", err);
                 ui.notifications?.error("Erreur lors de l'import depuis Origin Vault.");
-                finish(false);
+                return false;
               }
             }
           },
@@ -1735,8 +1771,15 @@ class SoundSystem {
           }
         },
         default: "import",
-        close: () => finish(false)
-      }).render(true);
+        close: () => {
+          clearDialog();
+          finish(false);
+        }
+      }, { id: "sound-system-import-vault-dialog" });
+
+      this.importMultipleDialog = dialog;
+      dialog.render(true);
+      window.setTimeout(() => this.bringImportDialogToTop(dialog), 50);
     });
 
   }
