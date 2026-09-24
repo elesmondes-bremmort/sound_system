@@ -7,6 +7,7 @@ const SOUND_SYSTEM_SELECTED_PLAYLIST_KEY = "sound-system-selected-playlist";
 const SOUND_SYSTEM_ACTIVE_TIMERS_KEY = "sound-system-active-timers";
 const SOUND_SYSTEM_AUTOPLAY_PLAYLISTS_KEY = "sound-system-autoplay-playlists";
 const SOUND_SYSTEM_SHUFFLE_PLAYLISTS_KEY = "sound-system-shuffle-playlists";
+const SOUND_SYSTEM_PLAYLIST_COLORS_KEY = "sound-system-playlist-colors";
 const SOUND_SYSTEM_PRESETS_SETTING = "presets";
 const SOUND_SYSTEM_AUDIO_EXTENSIONS = new Set(["mp3", "ogg", "wav", "flac", "m4a", "webm"]);
 
@@ -38,8 +39,8 @@ class SoundSystem {
     this.playlistOrder = [];
     this.autoplayPlaylists = this.loadAutoplayPlaylists();
     this.shufflePlaylists = this.loadPlaylistFlags(SOUND_SYSTEM_SHUFFLE_PLAYLISTS_KEY);
+    this.playlistColors = this.loadPlaylistColors();
     this.boundEndedSounds = new WeakSet();
-    this.remoteUpdateInterval = null;
     this.timedLoops = SoundSystem.timedLoops; // key -> intervalId
     this.loopDelays = this.loadLoopDelays();
     this.importMultipleDialog = null;
@@ -109,6 +110,34 @@ class SoundSystem {
 
   savePlaylistFlags(key, flags) {
     localStorage.setItem(key, JSON.stringify(Array.from(flags)));
+  }
+
+  loadPlaylistColors() {
+    try {
+      const colors = JSON.parse(localStorage.getItem(SOUND_SYSTEM_PLAYLIST_COLORS_KEY) || "{}");
+      return colors && typeof colors === "object" ? colors : {};
+    } catch {
+      return {};
+    }
+  }
+
+  savePlaylistColors() {
+    localStorage.setItem(SOUND_SYSTEM_PLAYLIST_COLORS_KEY, JSON.stringify(this.playlistColors));
+  }
+
+  getPlaylistColor(playlist) {
+    return this.playlistColors[playlist?.id] || (playlist?.mode === CONST.PLAYLIST_MODES.SIMULTANEOUS ? "#6f5aa8" : "#a26d2d");
+  }
+
+  applyPlaylistTheme() {
+    const color = this.getPlaylistColor(this.getSelectedPlaylist());
+    this.win?.style.setProperty("--ss-accent", color);
+  }
+
+  getRemoteSound(playlist) {
+    if (!playlist) return null;
+    return playlist.sounds.contents.find(sound => sound.playing) ||
+      playlist.sounds.contents.slice().sort((a, b) => Number(a.sort ?? 0) - Number(b.sort ?? 0))[0] || null;
   }
 
   clearPersistedActiveTimers() {
@@ -368,7 +397,6 @@ class SoundSystem {
 
     this.activateListeners();
     this.renderAll();
-    this.remoteUpdateInterval = setInterval(() => this.updateRemoteControls(), 250);
     this.search.focus();
   }
 
@@ -378,11 +406,6 @@ class SoundSystem {
     if (this.resizeObserver) {
       this.resizeObserver.disconnect();
       this.resizeObserver = null;
-    }
-
-    if (this.remoteUpdateInterval) {
-      clearInterval(this.remoteUpdateInterval);
-      this.remoteUpdateInterval = null;
     }
 
     document.getElementById(SOUND_SYSTEM_ID)?.remove();
@@ -395,6 +418,7 @@ class SoundSystem {
   renderAll() {
     this.normalizeSelectedPlaylist();
     this.playlistOrder = this.getFoundryPlaylistOrder();
+    this.applyPlaylistTheme();
     this.renderTree();
     this.renderResults();
     this.renderPresets();
@@ -447,9 +471,10 @@ class SoundSystem {
       </div>
 
       ${playlists.map((p, index) => `
-        <div class="ss-playlist ${this.selectedPlaylistId === p.id ? "active" : ""}" draggable="true" data-id="${p.id}" data-index="${index}">
+        <div class="ss-playlist ${this.selectedPlaylistId === p.id ? "active" : ""}" style="--playlist-color: ${this.getPlaylistColor(p)}" draggable="true" data-id="${p.id}" data-index="${index}">
           <div class="ss-playlist-heading">
-            <span>${p.mode === CONST.PLAYLIST_MODES.SIMULTANEOUS ? "🎛" : "🎵"} ${this.escape(p.name)}</span>
+            <span><i class="ss-playlist-color" style="background: ${this.getPlaylistColor(p)}"></i>${p.mode === CONST.PLAYLIST_MODES.SIMULTANEOUS ? "🎛" : "🎵"} ${this.escape(p.name)}</span>
+            <input class="ss-playlist-color-input" type="color" value="${this.getPlaylistColor(p)}" data-id="${p.id}" title="Couleur de la playlist" />
           </div>
           <div class="ss-sub">${p.sounds.size} piste${p.sounds.size > 1 ? "s" : ""}</div>
         </div>
@@ -490,6 +515,14 @@ class SoundSystem {
       this.saveAutoplayPlaylists();
       return;
     }
+  }
+
+  async updatePlaylistColor(playlistId, color) {
+    if (!/^#[0-9a-f]{6}$/i.test(color)) return;
+    this.playlistColors[playlistId] = color;
+    this.savePlaylistColors();
+    this.applyPlaylistTheme();
+    this.renderAll();
   }
 
   bindNaturalEnd(sound) {
@@ -534,9 +567,18 @@ class SoundSystem {
     const index = sounds.findIndex(candidate => candidate.id === sound.id);
     if (index < 0 || !sounds.length) return;
 
-    let nextIndex = index + direction;
-    if (nextIndex < 0) nextIndex = sounds.length - 1;
-    if (nextIndex >= sounds.length) nextIndex = 0;
+    let nextIndex;
+    if (this.shufflePlaylists.has(playlist.id)) {
+      const candidates = sounds
+        .map((candidate, candidateIndex) => ({ candidate, candidateIndex }))
+        .filter(({ candidate }) => candidate.id !== sound.id);
+      if (!candidates.length) return;
+      nextIndex = candidates[Math.floor(Math.random() * candidates.length)].candidateIndex;
+    } else {
+      nextIndex = index + direction;
+      if (nextIndex < 0) nextIndex = sounds.length - 1;
+      if (nextIndex >= sounds.length) nextIndex = 0;
+    }
 
     await playlist.stopSound(sound).catch(() => {});
     await playlist.playSound(sounds[nextIndex]).catch(() => {});
@@ -583,63 +625,6 @@ class SoundSystem {
     }
 
     return null;
-  }
-
-  getSoundDuration(sound) {
-    const audio = this.getAudioElement(sound);
-    const duration = audio?.duration ?? sound?.duration;
-    return Number.isFinite(duration) ? duration : 0;
-  }
-
-  formatTime(seconds) {
-    if (!Number.isFinite(seconds)) return "0:00";
-    const total = Math.max(0, Math.floor(seconds));
-    return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
-  }
-
-  seekSound(sound, value) {
-    const audio = this.getAudioElement(sound);
-    if (!audio) return;
-
-    const duration = this.getSoundDuration(sound);
-    const position = Math.max(0, Math.min(Number(value), duration || Number(value)));
-    try {
-      if (typeof audio.seek === "function") {
-        audio.seek(position);
-        return;
-      }
-      if (typeof audio.currentTime === "number") audio.currentTime = position;
-    } catch (error) {
-      console.warn("sound_system: unable to seek audio", error);
-    }
-  }
-
-  getSoundCurrentTime(sound) {
-    const audio = this.getAudioElement(sound);
-    if (!audio) return 0;
-    if (typeof audio.currentTime === "number") return audio.currentTime;
-    if (typeof audio.position === "number") return audio.position;
-    if (typeof audio.getPosition === "function") return Number(audio.getPosition()) || 0;
-    return 0;
-  }
-
-  updateRemoteControls() {
-    if (!this.now || !document.body.contains(this.now)) return;
-
-    this.now.querySelectorAll(".ss-now-row").forEach(row => {
-      try {
-        const { sound } = this.getRowData(row);
-        const seek = row.querySelector(".ss-remote-seek");
-        if (!sound || !seek || document.activeElement === seek) return;
-
-        const currentTime = this.getSoundCurrentTime(sound);
-        seek.value = String(currentTime);
-        const timeLabel = row.querySelector(".ss-remote-time");
-        if (timeLabel) timeLabel.textContent = `${this.formatTime(currentTime)} / ${this.formatTime(Number(seek.dataset.duration))}`;
-      } catch (error) {
-        console.warn("sound_system: unable to update remote controls", error);
-      }
-    });
   }
 
   refreshPlaylistOrder() {
@@ -716,12 +701,9 @@ class SoundSystem {
             const isSelected = this.selectedSoundKeys.has(key);
             const delay = this.loopDelays[key];
             const timerActive = this.timedLoops.has(key);
-            const duration = this.getSoundDuration(sound);
-            const currentTime = this.getSoundCurrentTime(sound);
             return `
               <div class="ss-pad ${sound.playing ? "playing" : ""} ${timerActive ? "timed-active" : ""} ${isSelected ? "selected" : ""}" draggable="true" data-playlist="${playlist.id}" data-sound="${sound.id}" data-index="${idx}">
                 <div class="ss-pad-label">${sound.playing ? "🟢 " : ""}${this.escape(sound.name)}</div>
-                ${duration ? `<div class="ss-timeline"><input class="ss-seek" type="range" min="0" max="${duration}" step="0.1" value="${currentTime}" data-duration="${duration}" /><span>${this.formatTime(currentTime)} / ${this.formatTime(duration)}</span></div>` : ""}
                 <div class="ss-pad-actions">
                   <button class="ss-btn loop ss-pad-loop ${sound.repeat ? "active" : ""}" title="Boucle native">${sound.repeat ? "🔁" : "↻"}</button>
                   <button class="ss-pad-timer ${timerActive ? "active" : ""}" title="Timer">${timerActive ? `⏱ ${delay}s` : (delay ? `⏱ ${delay}s` : `⏱`)}</button>
@@ -734,8 +716,6 @@ class SoundSystem {
             const isSelected = this.selectedSoundKeys.has(key);
             const delay = this.loopDelays[key];
             const timerActive = this.timedLoops.has(key);
-            const duration = this.getSoundDuration(sound);
-            const currentTime = this.getSoundCurrentTime(sound);
             return `
               <div class="ss-row ${showTimer ? "has-timer" : ""} ${timerActive ? "timed-active" : ""} ${isSelected ? "selected" : ""}" draggable="true" data-playlist="${playlist.id}" data-sound="${sound.id}" data-index="${idx}">
                 <button class="ss-btn play" title="Jouer">▶</button>
@@ -746,7 +726,6 @@ class SoundSystem {
                 <div class="ss-name">
                   <span>${sound.playing ? "🟢 " : ""}${this.escape(sound.name)}</span>
                   <div class="ss-sub">${this.escape(playlist.name)}</div>
-                  ${duration ? `<div class="ss-timeline"><input class="ss-seek" type="range" min="0" max="${duration}" step="0.1" value="${currentTime}" data-duration="${duration}" /><span>${this.formatTime(currentTime)} / ${this.formatTime(duration)}</span></div>` : ""}
                 </div>
               </div>
             `;
@@ -780,7 +759,18 @@ class SoundSystem {
     const armedOrPlaying = Array.from(entriesByKey.values());
     this.playingTitle.innerHTML = `<b>En cours / Armés (${armedOrPlaying.length})</b>`;
 
-    const remotePlaylist = this.getSelectedPlaylist() || armedOrPlaying[0]?.playlist;
+    const remotePlaylist = this.getSelectedPlaylist() || armedOrPlaying[0]?.playlist || game.playlists.contents[0] || null;
+    const remoteSound = this.getRemoteSound(remotePlaylist);
+    const remoteSoundPlaying = remoteSound?.playing === true;
+    this.playingTitle.innerHTML += `
+      <div class="ss-remote-panel" data-playlist="${remotePlaylist?.id || ""}" data-sound="${remoteSound?.id || ""}">
+        <div class="ss-remote-label">${remotePlaylist ? `${this.escape(remotePlaylist.name)}${remoteSound ? ` · ${this.escape(remoteSound.name)}` : ""}` : "Aucune playlist sélectionnée"}</div>
+        <div class="ss-remote-controls">
+          <button class="ss-transport previous" title="Piste précédente" ${remoteSound ? "" : "disabled"}>⏮</button>
+          <button class="ss-transport pause" title="Pause / reprendre" ${remoteSound ? "" : "disabled"}>${remoteSoundPlaying ? "⏸" : "▶"}</button>
+          <button class="ss-transport next" title="Piste suivante" ${remoteSound ? "" : "disabled"}>⏭</button>
+        </div>
+      </div>`;
     if (remotePlaylist && remotePlaylist.mode !== CONST.PLAYLIST_MODES.SIMULTANEOUS) {
       this.playingTitle.innerHTML += `
         <div class="ss-playback-options">
@@ -804,8 +794,6 @@ class SoundSystem {
           const delay = this.loopDelays[key];
           const timerActive = this.timedLoops.has(key);
           const status = `${sound.playing ? "🟢 " : ""}${timerActive ? "⏱ " : ""}`;
-          const duration = this.getSoundDuration(sound);
-          const currentTime = this.getSoundCurrentTime(sound);
           return `
         <div class="ss-now-row ${isSoundboard ? "has-timer" : ""}" data-playlist="${playlist.id}" data-sound="${sound.id}">
           <button class="ss-btn stop" title="Arrêter">■</button>
@@ -816,13 +804,6 @@ class SoundSystem {
             <div class="ss-name">${status}${this.escape(sound.name)}</div>
             <div class="ss-sub">${this.escape(playlist.name)}</div>
             <input class="volume" type="range" min="0" max="1" step="0.05" value="${sound.volume ?? 0.5}" />
-            ${duration ? `<div class="ss-remote-controls">
-              <button class="ss-transport previous" title="Piste précédente">⏮</button>
-              <button class="ss-transport pause" title="Pause / reprendre">${sound.playing ? "⏸" : "▶"}</button>
-              <button class="ss-transport next" title="Piste suivante">⏭</button>
-              <input class="ss-remote-seek" type="range" min="0" max="${duration}" step="0.1" value="${currentTime}" data-duration="${duration}" />
-              <span class="ss-remote-time">${this.formatTime(currentTime)} / ${this.formatTime(duration)}</span>
-            </div>` : ""}
           </div>
         </div>
       `;
@@ -1037,7 +1018,7 @@ class SoundSystem {
     });
 
     this.tree.addEventListener("click", async ev => {
-      if (ev.target.closest(".ss-playlist-shuffle, .ss-playlist-autoplay")) return;
+      if (ev.target.closest(".ss-playlist-color-input, .ss-playlist-shuffle, .ss-playlist-autoplay")) return;
 
       if (ev.target.classList.contains("ss-refresh-playlists")) {
         this.refreshPlaylistOrder();
@@ -1093,6 +1074,12 @@ class SoundSystem {
     });
 
     this.tree.addEventListener("change", async ev => {
+      const colorInput = ev.target.closest(".ss-playlist-color-input");
+      if (colorInput) {
+        await this.updatePlaylistColor(colorInput.dataset.id, colorInput.value);
+        return;
+      }
+
       const toggle = ev.target.closest(".ss-playlist-shuffle, .ss-playlist-autoplay");
       if (!toggle) return;
 
@@ -1349,6 +1336,30 @@ class SoundSystem {
     });
 
     this.now.addEventListener("click", async ev => {
+      const remotePanel = ev.target.closest(".ss-remote-panel");
+      if (remotePanel) {
+        const playlist = game.playlists.get(remotePanel.dataset.playlist);
+        const sound = playlist?.sounds.get(remotePanel.dataset.sound) || this.getRemoteSound(playlist);
+        if (!playlist || !sound || ev.target.closest("button")?.disabled) return;
+
+        if (ev.target.closest(".previous")) {
+          await this.playAdjacent(playlist, sound, -1);
+          return;
+        }
+        if (ev.target.closest(".next")) {
+          await this.playAdjacent(playlist, sound, 1);
+          return;
+        }
+        if (ev.target.closest(".pause")) {
+          if (sound.playing) {
+            if (typeof playlist.pauseSound === "function") await playlist.pauseSound(sound);
+            else await playlist.stopSound(sound);
+          } else await playlist.playSound(sound);
+          this.renderAll();
+        }
+        return;
+      }
+
       const row = ev.target.closest(".ss-now-row");
       if (!row) return;
 
@@ -1397,6 +1408,30 @@ class SoundSystem {
     });
 
     this.playingTitle.addEventListener("click", async ev => {
+      const remotePanel = ev.target.closest(".ss-remote-panel");
+      if (remotePanel) {
+        const playlist = game.playlists.get(remotePanel.dataset.playlist);
+        const sound = playlist?.sounds.get(remotePanel.dataset.sound) || this.getRemoteSound(playlist);
+        if (!playlist || !sound || ev.target.closest("button")?.disabled) return;
+
+        if (ev.target.closest(".previous")) {
+          await this.playAdjacent(playlist, sound, -1);
+          return;
+        }
+        if (ev.target.closest(".next")) {
+          await this.playAdjacent(playlist, sound, 1);
+          return;
+        }
+        if (ev.target.closest(".pause")) {
+          if (sound.playing) {
+            if (typeof playlist.pauseSound === "function") await playlist.pauseSound(sound);
+            else await playlist.stopSound(sound);
+          } else await playlist.playSound(sound);
+          this.renderAll();
+          return;
+        }
+      }
+
       const stopAllButton = ev.target.closest?.(".ss-stop-all");
       if (!stopAllButton) return;
       await this.stopAllSounds();
@@ -1414,19 +1449,6 @@ class SoundSystem {
       );
     });
 
-    this.now.addEventListener("input", ev => {
-      const seek = ev.target.closest(".ss-remote-seek");
-      if (!seek) return;
-
-      const row = seek.closest(".ss-now-row");
-      const { sound } = this.getRowData(row);
-      if (!sound) return;
-
-      this.seekSound(sound, Number(seek.value));
-      const timeLabel = seek.nextElementSibling;
-      if (timeLabel) timeLabel.textContent = `${this.formatTime(Number(seek.value))} / ${this.formatTime(Number(seek.dataset.duration))}`;
-    });
-
     this.now.addEventListener("input", async ev => {
       if (!ev.target.classList.contains("volume")) return;
 
@@ -1435,19 +1457,6 @@ class SoundSystem {
       if (!sound) return;
 
       await sound.update({ volume: Number(ev.target.value) });
-    });
-
-    this.results.addEventListener("input", ev => {
-      const seek = ev.target.closest(".ss-seek");
-      if (!seek) return;
-
-      const row = seek.closest(".ss-row, .ss-pad");
-      const { sound } = this.getRowData(row);
-      if (!sound) return;
-
-      this.seekSound(sound, Number(seek.value));
-      const timeLabel = seek.nextElementSibling;
-      if (timeLabel) timeLabel.textContent = `${this.formatTime(Number(seek.value))} / ${this.formatTime(Number(seek.dataset.duration))}`;
     });
 
     this.results.addEventListener("dragstart", ev => {

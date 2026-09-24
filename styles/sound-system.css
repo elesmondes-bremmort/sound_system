@@ -1,7 +1,8 @@
 #sound-system {
+  --ss-accent: #a26d2d;
   position: fixed;
   z-index: 50;
-  color: #f2e4c7;
+  color: #fff3cf;
   font-family: var(--font-primary);
   resize: both;
   overflow: hidden;
@@ -13,7 +14,7 @@
   width: 100%;
   height: 100%;
   background: rgba(18, 16, 13, 0.97);
-  border: 1px solid #8b6f3d;
+  border: 1px solid var(--ss-accent);
   border-radius: 10px;
   box-shadow: 0 0 25px #000;
   overflow: hidden;
@@ -41,6 +42,14 @@
   height: calc(100% - 43px);
 }
 
+#sound-system .ss-center,
+#sound-system .ss-tree,
+#sound-system .ss-playing,
+#sound-system .ss-presets {
+  background: #1b1814;
+  color: #fff3cf;
+}
+
 #sound-system aside,
 #sound-system section {
   padding: 10px;
@@ -53,7 +62,24 @@
 
 #sound-system .ss-playing {
   border-left: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(0, 0, 0, 0.18);
+  background: #1b1814;
+  color: #fff3cf;
+}
+
+#sound-system .ss-remote-panel {
+  margin: 8px 0 12px;
+  padding: 8px;
+  border: 1px solid var(--ss-accent);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+#sound-system .ss-remote-label {
+  margin-bottom: 7px;
+  color: #fff3cf;
+  font-size: 12px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
 #sound-system .ss-playback-options {
@@ -244,7 +270,8 @@
 
 #sound-system .ss-playlist:hover,
 #sound-system .ss-playlist.active {
-  background: rgba(255, 255, 255, 0.1);
+  background: color-mix(in srgb, var(--playlist-color) 28%, #1b1814);
+  border-color: var(--playlist-color);
 }
 
 #sound-system .ss-playlist-heading {
@@ -252,6 +279,13 @@
   align-items: center;
   justify-content: space-between;
   gap: 5px;
+}
+
+#sound-system .ss-playlist-heading > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 #sound-system .ss-playlist-controls {
@@ -277,6 +311,32 @@
 
 #sound-system .ss-playlist-controls input:disabled {
   cursor: not-allowed;
+}
+
+#sound-system .ss-transport:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+#sound-system .ss-playlist-color {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 5px;
+  border-radius: 50%;
+  vertical-align: middle;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.45);
+}
+
+#sound-system .ss-playlist-color-input {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid rgba(255, 243, 207, 0.55);
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
 }
 
 #sound-system .ss-playlist.drag-target {
@@ -391,26 +451,6 @@
   min-height: 26px;
 }
 
-#sound-system .ss-timeline {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  width: 100%;
-  color: #c8b996;
-  font-size: 10px;
-}
-
-#sound-system .ss-timeline .ss-seek {
-  min-width: 60px;
-  flex: 1;
-  margin: 0;
-}
-
-#sound-system .ss-timeline span {
-  flex: 0 0 auto;
-  white-space: nowrap;
-}
-
 #sound-system .ss-pad .ss-btn {
   flex: 0 0 auto;
 }
@@ -493,11 +533,9 @@
 }
 
 #sound-system .ss-remote-controls {
-  display: grid;
-  grid-template-columns: 24px 24px 24px minmax(70px, 1fr) auto;
+  display: flex;
   gap: 4px;
   align-items: center;
-  margin-top: 5px;
 }
 
 #sound-system .ss-transport {
@@ -516,16 +554,6 @@
   border-color: #d1b250;
 }
 
-#sound-system .ss-remote-seek {
-  min-width: 60px;
-  margin: 0;
-}
-
-#sound-system .ss-remote-time {
-  color: #c8b996;
-  font-size: 10px;
-  white-space: nowrap;
-}
 
 #sound-system-launcher {
   position: fixed;
@@ -642,6 +670,22 @@
 
 .sound-system-dialog {
   z-index: 100030 !important;
+}
+
+#sound-system .ss-main > .ss-tree,
+#sound-system .ss-main > .ss-center,
+#sound-system .ss-main > .ss-presets,
+#sound-system .ss-main > .ss-playing {
+  background: #1b1814 !important;
+  color: #fff3cf !important;
+}
+
+#sound-system .ss-main .ss-name,
+#sound-system .ss-main .ss-playlist,
+#sound-system .ss-main .ss-sub,
+#sound-system .ss-main .ss-empty,
+#sound-system .ss-main .ss-playing-title {
+  color: #fff3cf;
 }
 
 #sound-system .ss-selection-bar {
