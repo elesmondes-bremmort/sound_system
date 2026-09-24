@@ -39,6 +39,7 @@ class SoundSystem {
     this.playlistOrder = [];
     this.shufflePlaylists = this.loadPlaylistFlags(SOUND_SYSTEM_SHUFFLE_PLAYLISTS_KEY);
     this.playlistColors = this.loadPlaylistColors();
+    this.musicPlaybackChain = Promise.resolve();
     this.timedLoops = SoundSystem.timedLoops; // key -> intervalId
     this.loopDelays = this.loadLoopDelays();
     this.importMultipleDialog = null;
@@ -520,6 +521,7 @@ class SoundSystem {
 
     if (option === "autoplay") {
       if (this.isSoundboard(playlist)) return;
+      if (checked) await this.clearPlaylistRepeats(playlist);
       const targetMode = checked
         ? (this.shufflePlaylists.has(playlistId) ? CONST.PLAYLIST_MODES.SHUFFLE : CONST.PLAYLIST_MODES.SEQUENTIAL)
         : CONST.PLAYLIST_MODES.SIMULTANEOUS;
@@ -527,6 +529,69 @@ class SoundSystem {
       this.renderAll();
       return;
     }
+  }
+
+  async clearPlaylistRepeats(playlist) {
+    if (this.isSoundboard(playlist)) return;
+    const repeatedSounds = playlist.sounds.contents.filter(sound => sound.repeat);
+    for (const sound of repeatedSounds) await sound.update({ repeat: false });
+  }
+
+  async setSoundRepeat(playlist, sound, enabled) {
+    if (!playlist || !sound) return;
+    if (sound.repeat === Boolean(enabled) && !(enabled && !this.isSoundboard(playlist) && this.isAutoplayEnabled(playlist))) {
+      this.renderAll();
+      return;
+    }
+    if (enabled && !this.isSoundboard(playlist) && this.isAutoplayEnabled(playlist)) {
+      await sound.update({ repeat: true });
+      if (playlist.mode !== CONST.PLAYLIST_MODES.SIMULTANEOUS) {
+        await playlist.update({ mode: CONST.PLAYLIST_MODES.SIMULTANEOUS });
+      }
+      this.renderAll();
+      return;
+    }
+
+    await sound.update({ repeat: Boolean(enabled) });
+    this.renderAll();
+  }
+
+  async stopOtherMusicPlaylists(targetPlaylist) {
+    const otherPlaylists = game.playlists.contents.filter(playlist => {
+      if (playlist.id === targetPlaylist.id || this.isSoundboard(playlist)) return false;
+      return playlist.playing || playlist.sounds.contents.some(sound => sound.playing);
+    });
+
+    for (const playlist of otherPlaylists) {
+      await playlist.stopAll().catch(() => {});
+    }
+  }
+
+  playSoundFromSoundSystem(playlist, sound) {
+    if (!playlist || !sound) return Promise.resolve(null);
+
+    this.musicPlaybackChain = this.musicPlaybackChain
+      .catch(() => {})
+      .then(async () => {
+        if (!this.isSoundboard(playlist)) await this.stopOtherMusicPlaylists(playlist);
+        return playlist.playSound(sound);
+      });
+
+    return this.musicPlaybackChain;
+  }
+
+  playNextFromSoundSystem(playlist, sound, direction) {
+    this.musicPlaybackChain = this.musicPlaybackChain
+      .catch(() => {})
+      .then(async () => {
+        if (!this.isSoundboard(playlist)) await this.stopOtherMusicPlaylists(playlist);
+        if (typeof playlist.playNext === "function") {
+          return playlist.playNext(sound?.id, { direction });
+        }
+        return null;
+      });
+
+    return this.musicPlaybackChain;
   }
 
   async updatePlaylistColor(playlistId, color) {
@@ -544,9 +609,10 @@ class SoundSystem {
   async playAdjacent(playlist, sound, direction) {
     if (
       typeof playlist.playNext === "function" &&
+      direction === 1 &&
       (playlist.mode === CONST.PLAYLIST_MODES.SEQUENTIAL || playlist.mode === CONST.PLAYLIST_MODES.SHUFFLE)
     ) {
-      await playlist.playNext(sound.id, { direction }).catch(() => {});
+      await this.playNextFromSoundSystem(playlist, sound, direction).catch(() => {});
       this.renderAll();
       return;
     }
@@ -556,7 +622,7 @@ class SoundSystem {
     if (index < 0 || !sounds.length) return;
 
     let nextIndex;
-    if (playlist.mode === CONST.PLAYLIST_MODES.SHUFFLE) {
+    if (direction === 1 && this.isShuffleEnabled(playlist)) {
       const candidates = sounds
         .map((candidate, candidateIndex) => ({ candidate, candidateIndex }))
         .filter(({ candidate }) => candidate.id !== sound.id);
@@ -569,7 +635,7 @@ class SoundSystem {
     }
 
     await playlist.stopSound(sound).catch(() => {});
-    await playlist.playSound(sounds[nextIndex]).catch(() => {});
+    await this.playSoundFromSoundSystem(playlist, sounds[nextIndex]).catch(() => {});
     this.renderAll();
   }
 
@@ -894,11 +960,12 @@ class SoundSystem {
       if (!playlist || !sound) continue;
 
       await sound.update({
-        volume: Number.isFinite(Number(entry.volume)) ? Number(entry.volume) : sound.volume ?? 0.5,
-        repeat: entry.timerSeconds ? false : !!entry.repeat
+        volume: Number.isFinite(Number(entry.volume)) ? Number(entry.volume) : sound.volume ?? 0.5
       }).catch(() => {});
+      if (entry.timerSeconds) await sound.update({ repeat: false }).catch(() => {});
+      else await this.setSoundRepeat(playlist, sound, !!entry.repeat);
 
-      await playlist.playSound(sound).catch(() => {});
+      await this.playSoundFromSoundSystem(playlist, sound).catch(() => {});
 
       if (entry.timerSeconds) {
         this.startTimedLoop(playlist, sound, Number(entry.timerSeconds));
@@ -1159,7 +1226,7 @@ class SoundSystem {
         {
           label: "▶ Jouer",
           action: async () => {
-            await playlist.playSound(sound);
+            await this.playSoundFromSoundSystem(playlist, sound);
             this.renderAll();
           }
         },
@@ -1199,7 +1266,7 @@ class SoundSystem {
         if (playlist && sound) {
           const newRepeat = !sound.repeat;
           if (newRepeat) this.stopTimedLoop(playlist, sound);
-          await sound.update({ repeat: newRepeat });
+          await this.setSoundRepeat(playlist, sound, newRepeat);
         }
         this.renderAll();
         return;
@@ -1226,7 +1293,7 @@ class SoundSystem {
         }
         const { playlist, sound } = this.getRowData(pad);
         if (!playlist || !sound) return;
-        await playlist.playSound(sound);
+        await this.playSoundFromSoundSystem(playlist, sound);
         this.renderAll();
         return;
       }
@@ -1236,7 +1303,7 @@ class SoundSystem {
 
       if (ev.target.classList.contains("play")) {
         const { playlist, sound } = this.getRowData(row);
-        if (playlist && sound) await playlist.playSound(sound);
+        if (playlist && sound) await this.playSoundFromSoundSystem(playlist, sound);
         this.renderAll();
         return;
       }
@@ -1256,7 +1323,7 @@ class SoundSystem {
         if (playlist && sound) {
           const newRepeat = !sound.repeat;
           if (newRepeat) this.stopTimedLoop(playlist, sound);
-          await sound.update({ repeat: newRepeat });
+          await this.setSoundRepeat(playlist, sound, newRepeat);
         }
         this.renderAll();
         return;
@@ -1283,7 +1350,7 @@ class SoundSystem {
 
       const { playlist, sound } = this.getRowData(row);
       if (!playlist || !sound) return;
-      await playlist.playSound(sound);
+      await this.playSoundFromSoundSystem(playlist, sound);
       this.renderAll();
     });
 
@@ -1310,7 +1377,7 @@ class SoundSystem {
           this.renderAll();
           return;
         }
-        await playlist.playSound(sound);
+        await this.playSoundFromSoundSystem(playlist, sound);
         this.renderAll();
         return;
       }
@@ -1321,7 +1388,7 @@ class SoundSystem {
       const { playlist, sound } = this.getRowData(row);
       if (!playlist || !sound) return;
 
-      await playlist.playSound(sound);
+      await this.playSoundFromSoundSystem(playlist, sound);
       this.renderAll();
     });
 
@@ -1350,7 +1417,7 @@ class SoundSystem {
           if (sound.playing) {
             if (typeof playlist.pauseSound === "function") await playlist.pauseSound(sound);
             else await playlist.stopSound(sound);
-          } else await playlist.playSound(sound);
+          } else await this.playSoundFromSoundSystem(playlist, sound);
           this.renderAll();
         }
         return;
@@ -1377,7 +1444,7 @@ class SoundSystem {
           if (typeof playlist.pauseSound === "function") await playlist.pauseSound(sound);
           else await playlist.stopSound(sound);
         } else {
-          await playlist.playSound(sound);
+          await this.playSoundFromSoundSystem(playlist, sound);
         }
         this.renderAll();
         return;
@@ -1392,7 +1459,7 @@ class SoundSystem {
       if (ev.target.classList.contains("loop")) {
         const newRepeat = !sound.repeat;
         if (newRepeat) this.stopTimedLoop(playlist, sound);
-        await sound.update({ repeat: newRepeat });
+        await this.setSoundRepeat(playlist, sound, newRepeat);
         this.renderAll();
         return;
       }
@@ -1422,7 +1489,7 @@ class SoundSystem {
           if (sound.playing) {
             if (typeof playlist.pauseSound === "function") await playlist.pauseSound(sound);
             else await playlist.stopSound(sound);
-          } else await playlist.playSound(sound);
+          } else await this.playSoundFromSoundSystem(playlist, sound);
           this.renderAll();
           return;
         }
