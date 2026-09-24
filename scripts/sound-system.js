@@ -405,8 +405,8 @@ class SoundSystem {
         📚 Toutes les playlists
       </div>
 
-      ${playlists.map(p => `
-        <div class="ss-playlist ${this.selectedPlaylistId === p.id ? "active" : ""}" data-id="${p.id}">
+      ${playlists.map((p, index) => `
+        <div class="ss-playlist ${this.selectedPlaylistId === p.id ? "active" : ""}" draggable="true" data-id="${p.id}" data-index="${index}">
           <div class="ss-playlist-heading">
             <span>${p.mode === CONST.PLAYLIST_MODES.SIMULTANEOUS ? "🎛" : "🎵"} ${this.escape(p.name)}</span>
             <span class="ss-playlist-controls">
@@ -452,7 +452,57 @@ class SoundSystem {
       return;
     }
 
-    if (option === "autoplay") await playlist.update({ playing: checked });
+    if (option === "autoplay") {
+      if (checked) await playlist.playAll();
+      else await playlist.stopAll();
+      return;
+    }
+  }
+
+  async reorderPlaylists(sourceId, targetId, below) {
+    const order = this.getFoundryPlaylistOrder().map(playlist => playlist.id);
+    const sourceIndex = order.indexOf(sourceId);
+    const targetIndex = order.indexOf(targetId);
+    if (sourceIndex < 0 || targetIndex < 0 || sourceId === targetId) return;
+
+    order.splice(sourceIndex, 1);
+    let insertIndex = order.indexOf(targetId) + (below ? 1 : 0);
+    order.splice(insertIndex, 0, sourceId);
+
+    await Playlist.updateDocuments(order.map((id, index) => ({
+      _id: id,
+      sort: index
+    })));
+    this.playlistOrder = this.getFoundryPlaylistOrder();
+    this.renderAll();
+  }
+
+  getAudioElement(sound) {
+    const audio = sound?.sound;
+    if (!audio) return null;
+    if (typeof audio.currentTime === "number") return audio;
+    if (typeof audio.source?.currentTime === "number") return audio.source;
+    if (typeof audio.element?.currentTime === "number") return audio.element;
+    if (typeof audio.audio?.currentTime === "number") return audio.audio;
+    return null;
+  }
+
+  getSoundDuration(sound) {
+    const audio = this.getAudioElement(sound);
+    const duration = audio?.duration ?? sound?.duration;
+    return Number.isFinite(duration) ? duration : 0;
+  }
+
+  formatTime(seconds) {
+    if (!Number.isFinite(seconds)) return "0:00";
+    const total = Math.max(0, Math.floor(seconds));
+    return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+  }
+
+  seekSound(sound, value) {
+    const audio = this.getAudioElement(sound);
+    if (!audio || !Number.isFinite(audio.duration)) return;
+    audio.currentTime = Math.max(0, Math.min(Number(value), audio.duration));
   }
 
   refreshPlaylistOrder() {
@@ -529,9 +579,13 @@ class SoundSystem {
             const isSelected = this.selectedSoundKeys.has(key);
             const delay = this.loopDelays[key];
             const timerActive = this.timedLoops.has(key);
+            const duration = this.getSoundDuration(sound);
+            const audio = this.getAudioElement(sound);
+            const currentTime = audio?.currentTime ?? 0;
             return `
               <div class="ss-pad ${sound.playing ? "playing" : ""} ${timerActive ? "timed-active" : ""} ${isSelected ? "selected" : ""}" draggable="true" data-playlist="${playlist.id}" data-sound="${sound.id}" data-index="${idx}">
                 <div class="ss-pad-label">${sound.playing ? "🟢 " : ""}${this.escape(sound.name)}</div>
+                ${duration ? `<div class="ss-timeline"><input class="ss-seek" type="range" min="0" max="${duration}" step="0.1" value="${currentTime}" data-duration="${duration}" /><span>${this.formatTime(currentTime)} / ${this.formatTime(duration)}</span></div>` : ""}
                 <div class="ss-pad-actions">
                   <button class="ss-btn loop ss-pad-loop ${sound.repeat ? "active" : ""}" title="Boucle native">${sound.repeat ? "🔁" : "↻"}</button>
                   <button class="ss-pad-timer ${timerActive ? "active" : ""}" title="Timer">${timerActive ? `⏱ ${delay}s` : (delay ? `⏱ ${delay}s` : `⏱`)}</button>
@@ -544,6 +598,9 @@ class SoundSystem {
             const isSelected = this.selectedSoundKeys.has(key);
             const delay = this.loopDelays[key];
             const timerActive = this.timedLoops.has(key);
+            const duration = this.getSoundDuration(sound);
+            const audio = this.getAudioElement(sound);
+            const currentTime = audio?.currentTime ?? 0;
             return `
               <div class="ss-row ${showTimer ? "has-timer" : ""} ${timerActive ? "timed-active" : ""} ${isSelected ? "selected" : ""}" draggable="true" data-playlist="${playlist.id}" data-sound="${sound.id}" data-index="${idx}">
                 <button class="ss-btn play" title="Jouer">▶</button>
@@ -554,6 +611,7 @@ class SoundSystem {
                 <div class="ss-name">
                   <span>${sound.playing ? "🟢 " : ""}${this.escape(sound.name)}</span>
                   <div class="ss-sub">${this.escape(playlist.name)}</div>
+                  ${duration ? `<div class="ss-timeline"><input class="ss-seek" type="range" min="0" max="${duration}" step="0.1" value="${currentTime}" data-duration="${duration}" /><span>${this.formatTime(currentTime)} / ${this.formatTime(duration)}</span></div>` : ""}
                 </div>
               </div>
             `;
@@ -992,6 +1050,12 @@ class SoundSystem {
     });
 
     this.results.addEventListener("click", async ev => {
+      if (ev.target.closest(".ss-seek")) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        return;
+      }
+
       const padLoop = ev.target.closest(".ss-pad-loop");
       if (padLoop) {
         ev.preventDefault();
@@ -1090,6 +1154,12 @@ class SoundSystem {
     });
 
     this.results.addEventListener("dblclick", async ev => {
+      if (ev.target.closest(".ss-seek")) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        return;
+      }
+
       if (ev.target.closest(".ss-pad-loop, .ss-pad-timer")) {
         ev.preventDefault();
         ev.stopPropagation();
@@ -1163,6 +1233,19 @@ class SoundSystem {
       if (!sound) return;
 
       await sound.update({ volume: Number(ev.target.value) });
+    });
+
+    this.results.addEventListener("input", ev => {
+      const seek = ev.target.closest(".ss-seek");
+      if (!seek) return;
+
+      const row = seek.closest(".ss-row, .ss-pad");
+      const { sound } = this.getRowData(row);
+      if (!sound) return;
+
+      this.seekSound(sound, Number(seek.value));
+      const timeLabel = seek.nextElementSibling;
+      if (timeLabel) timeLabel.textContent = `${this.formatTime(Number(seek.value))} / ${this.formatTime(Number(seek.dataset.duration))}`;
     });
 
     this.results.addEventListener("dragstart", ev => {
@@ -1275,14 +1358,24 @@ class SoundSystem {
       this.renderAll();
     });
 
+    this.tree.addEventListener("dragstart", ev => {
+      const playlist = ev.target.closest(".ss-playlist[data-id]");
+      if (!playlist || ev.target.closest("input, button")) return;
+
+      ev.dataTransfer.effectAllowed = "move";
+      ev.dataTransfer.setData("application/x-sound-system-playlist", playlist.dataset.id);
+    });
+
     this.tree.addEventListener("dragover", ev => {
       const playlist = ev.target.closest(".ss-playlist[data-id]");
       if (!playlist || !playlist.dataset.id) return;
 
       ev.preventDefault();
 
-      this.tree.querySelectorAll(".drag-target").forEach(el => el.classList.remove("drag-target"));
-      playlist.classList.add("drag-target");
+      const rect = playlist.getBoundingClientRect();
+      const below = ev.clientY - rect.top >= rect.height / 2;
+      this.tree.querySelectorAll(".drag-target, .drop-above, .drop-below").forEach(el => el.classList.remove("drag-target", "drop-above", "drop-below"));
+      playlist.classList.add(below ? "drop-below" : "drop-above");
     });
 
     this.tree.addEventListener("dragleave", () => {
@@ -1292,10 +1385,17 @@ class SoundSystem {
     this.tree.addEventListener("drop", async ev => {
       ev.preventDefault();
 
-      this.tree.querySelectorAll(".drag-target").forEach(el => el.classList.remove("drag-target"));
+      this.tree.querySelectorAll(".drag-target, .drop-above, .drop-below").forEach(el => el.classList.remove("drag-target", "drop-above", "drop-below"));
 
       const targetEl = ev.target.closest(".ss-playlist[data-id]");
       if (!targetEl || !targetEl.dataset.id) return;
+
+      const sourceId = ev.dataTransfer.getData("application/x-sound-system-playlist");
+      if (sourceId) {
+        const rect = targetEl.getBoundingClientRect();
+        await this.reorderPlaylists(sourceId, targetEl.dataset.id, ev.clientY - rect.top >= rect.height / 2);
+        return;
+      }
 
       const payload = JSON.parse(ev.dataTransfer.getData("application/json") || "{}");
       const sounds = payload.sounds || [];
