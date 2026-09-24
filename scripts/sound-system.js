@@ -5,8 +5,8 @@ const SOUND_SYSTEM_VIEW_MODE_KEY = "sound-system-view-mode";
 const SOUND_SYSTEM_LOOP_DELAYS_KEY = "sound-system-loop-delays";
 const SOUND_SYSTEM_SELECTED_PLAYLIST_KEY = "sound-system-selected-playlist";
 const SOUND_SYSTEM_ACTIVE_TIMERS_KEY = "sound-system-active-timers";
-const SOUND_SYSTEM_AUTOPLAY_PLAYLISTS_KEY = "sound-system-autoplay-playlists";
 const SOUND_SYSTEM_SHUFFLE_PLAYLISTS_KEY = "sound-system-shuffle-playlists";
+const SOUND_SYSTEM_FLAG_SCOPE = SOUND_SYSTEM_MODULE_ID;
 const SOUND_SYSTEM_PLAYLIST_COLORS_KEY = "sound-system-playlist-colors";
 const SOUND_SYSTEM_PRESETS_SETTING = "presets";
 const SOUND_SYSTEM_AUDIO_EXTENSIONS = new Set(["mp3", "ogg", "wav", "flac", "m4a", "webm"]);
@@ -37,10 +37,8 @@ class SoundSystem {
     this.viewMode = this.loadViewMode();
     this.playlistFilter = "all";
     this.playlistOrder = [];
-    this.autoplayPlaylists = this.loadAutoplayPlaylists();
     this.shufflePlaylists = this.loadPlaylistFlags(SOUND_SYSTEM_SHUFFLE_PLAYLISTS_KEY);
     this.playlistColors = this.loadPlaylistColors();
-    this.boundEndedSounds = new WeakSet();
     this.timedLoops = SoundSystem.timedLoops; // key -> intervalId
     this.loopDelays = this.loadLoopDelays();
     this.importMultipleDialog = null;
@@ -83,22 +81,6 @@ class SoundSystem {
     } catch {}
   }
 
-  loadAutoplayPlaylists() {
-    try {
-      const ids = JSON.parse(localStorage.getItem(SOUND_SYSTEM_AUTOPLAY_PLAYLISTS_KEY) || "[]");
-      return new Set(Array.isArray(ids) ? ids : []);
-    } catch {
-      return new Set();
-    }
-  }
-
-  saveAutoplayPlaylists() {
-    localStorage.setItem(
-      SOUND_SYSTEM_AUTOPLAY_PLAYLISTS_KEY,
-      JSON.stringify(Array.from(this.autoplayPlaylists))
-    );
-  }
-
   loadPlaylistFlags(key) {
     try {
       const ids = JSON.parse(localStorage.getItem(key) || "[]");
@@ -126,7 +108,29 @@ class SoundSystem {
   }
 
   getPlaylistColor(playlist) {
-    return this.playlistColors[playlist?.id] || (playlist?.mode === CONST.PLAYLIST_MODES.SIMULTANEOUS ? "#6f5aa8" : "#a26d2d");
+    return this.playlistColors[playlist?.id] || (this.isSoundboard(playlist) ? "#6f5aa8" : "#a26d2d");
+  }
+
+  isSoundboard(playlist) {
+    return playlist?.getFlag?.(SOUND_SYSTEM_FLAG_SCOPE, "soundboard") === true;
+  }
+
+  async setSoundboard(playlist, value) {
+    if (!playlist || this.isSoundboard(playlist) === Boolean(value)) return playlist;
+    return playlist.setFlag(SOUND_SYSTEM_FLAG_SCOPE, "soundboard", Boolean(value));
+  }
+
+  isAutoplayEnabled(playlist) {
+    return !this.isSoundboard(playlist) && (
+      playlist?.mode === CONST.PLAYLIST_MODES.SEQUENTIAL ||
+      playlist?.mode === CONST.PLAYLIST_MODES.SHUFFLE
+    );
+  }
+
+  isShuffleEnabled(playlist) {
+    if (this.isSoundboard(playlist)) return false;
+    if (playlist?.mode === CONST.PLAYLIST_MODES.SHUFFLE) return true;
+    return playlist?.mode === CONST.PLAYLIST_MODES.SIMULTANEOUS && this.shufflePlaylists.has(playlist.id);
   }
 
   applyPlaylistTheme() {
@@ -183,7 +187,7 @@ class SoundSystem {
 
   async toggleTimedLoop(playlist, sound) {
     if (!playlist || !sound) return;
-    if (playlist.mode !== CONST.PLAYLIST_MODES.SIMULTANEOUS) return;
+    if (!this.isSoundboard(playlist) || playlist.mode !== CONST.PLAYLIST_MODES.SIMULTANEOUS) return;
 
     const key = `${playlist.id}:${sound.id}`;
     const existing = this.loopDelays[key];
@@ -442,7 +446,7 @@ class SoundSystem {
 
   renderTree() {
     const selectedPlaylist = this.getSelectedPlaylist();
-    const isSoundboard = !!selectedPlaylist && selectedPlaylist.mode === CONST.PLAYLIST_MODES.SIMULTANEOUS;
+    const isSoundboard = this.isSoundboard(selectedPlaylist);
     const playlists = this.getVisiblePlaylists();
 
     this.tree.innerHTML = `
@@ -473,7 +477,7 @@ class SoundSystem {
       ${playlists.map((p, index) => `
         <div class="ss-playlist ${this.selectedPlaylistId === p.id ? "active" : ""}" style="--playlist-color: ${this.getPlaylistColor(p)}" draggable="true" data-id="${p.id}" data-index="${index}">
           <div class="ss-playlist-heading">
-            <span><i class="ss-playlist-color" style="background: ${this.getPlaylistColor(p)}"></i>${p.mode === CONST.PLAYLIST_MODES.SIMULTANEOUS ? "🎛" : "🎵"} ${this.escape(p.name)}</span>
+            <span><i class="ss-playlist-color" style="background: ${this.getPlaylistColor(p)}"></i>${this.isSoundboard(p) ? "🎛" : "🎵"} ${this.escape(p.name)}</span>
             <input class="ss-playlist-color-input" type="color" value="${this.getPlaylistColor(p)}" data-id="${p.id}" title="Couleur de la playlist" />
           </div>
           <div class="ss-sub">${p.sounds.size} piste${p.sounds.size > 1 ? "s" : ""}</div>
@@ -491,8 +495,8 @@ class SoundSystem {
 
   getVisiblePlaylists() {
     return this.playlistOrder.filter(playlist => {
-      if (this.playlistFilter === "playlists") return playlist.mode !== CONST.PLAYLIST_MODES.SIMULTANEOUS;
-      if (this.playlistFilter === "soundboards") return playlist.mode === CONST.PLAYLIST_MODES.SIMULTANEOUS;
+      if (this.playlistFilter === "playlists") return !this.isSoundboard(playlist);
+      if (this.playlistFilter === "soundboards") return this.isSoundboard(playlist);
       return true;
     });
   }
@@ -502,22 +506,24 @@ class SoundSystem {
     if (!playlist) return;
 
     if (option === "shuffle") {
+      if (this.isSoundboard(playlist)) return;
       if (checked) this.shufflePlaylists.add(playlistId);
       else this.shufflePlaylists.delete(playlistId);
       this.savePlaylistFlags(SOUND_SYSTEM_SHUFFLE_PLAYLISTS_KEY, this.shufflePlaylists);
-      if (playlist.mode !== CONST.PLAYLIST_MODES.SIMULTANEOUS && playlist.mode === CONST.PLAYLIST_MODES.SHUFFLE) {
-        await playlist.update({ mode: CONST.PLAYLIST_MODES.SEQUENTIAL });
+      if (this.isAutoplayEnabled(playlist)) {
+        const targetMode = checked ? CONST.PLAYLIST_MODES.SHUFFLE : CONST.PLAYLIST_MODES.SEQUENTIAL;
+        if (playlist.mode !== targetMode) await playlist.update({ mode: targetMode });
       }
       this.renderAll();
       return;
     }
 
     if (option === "autoplay") {
-      if (playlist.mode === CONST.PLAYLIST_MODES.SIMULTANEOUS) return;
-      if (checked) this.autoplayPlaylists.add(playlistId);
-      else this.autoplayPlaylists.delete(playlistId);
-      this.saveAutoplayPlaylists();
-      if (!checked && playlist.playing) await playlist.update({ playing: false });
+      if (this.isSoundboard(playlist)) return;
+      const targetMode = checked
+        ? (this.shufflePlaylists.has(playlistId) ? CONST.PLAYLIST_MODES.SHUFFLE : CONST.PLAYLIST_MODES.SEQUENTIAL)
+        : CONST.PLAYLIST_MODES.SIMULTANEOUS;
+      if (playlist.mode !== targetMode) await playlist.update({ mode: targetMode });
       this.renderAll();
       return;
     }
@@ -531,50 +537,26 @@ class SoundSystem {
     this.renderAll();
   }
 
-  bindNaturalEnd(sound) {
-    const audio = this.getAudioElement(sound);
-    if (!audio || this.boundEndedSounds.has(audio)) return;
-
-    const advance = () => this.advancePlaylist(sound);
-    if (typeof audio.addEventListener === "function") {
-      audio.addEventListener("ended", advance);
-      this.boundEndedSounds.add(audio);
-    } else if (typeof audio.on === "function") {
-      audio.on("end", advance);
-      this.boundEndedSounds.add(audio);
-    }
-  }
-
-  async advancePlaylist(sound) {
-    const playlist = sound?.parent ?? sound?.playlist;
-    if (!playlist || !this.autoplayPlaylists.has(playlist.id)) return;
-    if (playlist.mode === CONST.PLAYLIST_MODES.SIMULTANEOUS) return;
-
-    const sounds = playlist.sounds.contents.slice().sort((a, b) => Number(a.sort ?? 0) - Number(b.sort ?? 0));
-    if (!sounds.length) return;
-
-    let next;
-    if (this.shufflePlaylists.has(playlist.id)) {
-      const candidates = sounds.filter(candidate => candidate.id !== sound.id);
-      next = candidates[Math.floor(Math.random() * candidates.length)];
-    } else {
-      next = sounds[sounds.findIndex(candidate => candidate.id === sound.id) + 1];
-    }
-
-    if (next) await playlist.playSound(next).catch(() => {});
-  }
-
   getPlaylistSounds(playlist) {
     return playlist.sounds.contents.slice().sort((a, b) => Number(a.sort ?? 0) - Number(b.sort ?? 0));
   }
 
   async playAdjacent(playlist, sound, direction) {
+    if (
+      typeof playlist.playNext === "function" &&
+      (playlist.mode === CONST.PLAYLIST_MODES.SEQUENTIAL || playlist.mode === CONST.PLAYLIST_MODES.SHUFFLE)
+    ) {
+      await playlist.playNext(sound.id, { direction }).catch(() => {});
+      this.renderAll();
+      return;
+    }
+
     const sounds = this.getPlaylistSounds(playlist);
     const index = sounds.findIndex(candidate => candidate.id === sound.id);
     if (index < 0 || !sounds.length) return;
 
     let nextIndex;
-    if (this.shufflePlaylists.has(playlist.id)) {
+    if (playlist.mode === CONST.PLAYLIST_MODES.SHUFFLE) {
       const candidates = sounds
         .map((candidate, candidateIndex) => ({ candidate, candidateIndex }))
         .filter(({ candidate }) => candidate.id !== sound.id);
@@ -625,30 +607,6 @@ class SoundSystem {
     this.renderAll();
   }
 
-  getAudioElement(sound) {
-    const audio = sound?.sound;
-    if (!audio) return null;
-
-    const candidates = [
-      audio,
-      audio.element,
-      audio.source,
-      audio.audio,
-      audio.node,
-      audio.sourceNode
-    ].filter(Boolean);
-
-    for (const candidate of candidates) {
-      if (
-        typeof candidate.currentTime === "number" ||
-        typeof candidate.seek === "function" ||
-        typeof candidate.duration === "number"
-      ) return candidate;
-    }
-
-    return null;
-  }
-
   refreshPlaylistOrder() {
     this.playlistOrder = this.getFoundryPlaylistOrder();
     this.renderTree();
@@ -697,7 +655,7 @@ class SoundSystem {
   renderResults() {
     const entries = this.getFilteredEntries();
     const selectedPlaylist = this.getSelectedPlaylist();
-    const isSoundboard = !!selectedPlaylist && selectedPlaylist.mode === CONST.PLAYLIST_MODES.SIMULTANEOUS;
+    const isSoundboard = this.isSoundboard(selectedPlaylist);
     const showPads = isSoundboard && this.viewMode === "pads";
     const showTimer = isSoundboard;
 
@@ -793,14 +751,14 @@ class SoundSystem {
           <button class="ss-transport next" title="Piste suivante" ${remoteSound ? "" : "disabled"}>⏭</button>
         </div>
       </div>`;
-    if (remotePlaylist && remotePlaylist.mode !== CONST.PLAYLIST_MODES.SIMULTANEOUS) {
+    if (remotePlaylist && !this.isSoundboard(remotePlaylist)) {
       this.playingTitle.innerHTML += `
         <div class="ss-playback-options">
           <label title="Lecture aléatoire">
-            <input class="ss-shuffle-toggle" type="checkbox" data-id="${remotePlaylist.id}" ${this.shufflePlaylists.has(remotePlaylist.id) ? "checked" : ""} /> 🔀
+            <input class="ss-shuffle-toggle" type="checkbox" data-id="${remotePlaylist.id}" ${this.isShuffleEnabled(remotePlaylist) ? "checked" : ""} /> 🔀
           </label>
           <label title="Enchaîner automatiquement la piste suivante à la fin">
-            <input class="ss-autoplay-toggle" type="checkbox" data-id="${remotePlaylist.id}" ${this.autoplayPlaylists.has(remotePlaylist.id) ? "checked" : ""} /> ⏭
+            <input class="ss-autoplay-toggle" type="checkbox" data-id="${remotePlaylist.id}" ${this.isAutoplayEnabled(remotePlaylist) ? "checked" : ""} /> ⏭
           </label>
         </div>`;
     }
@@ -811,7 +769,7 @@ class SoundSystem {
 
     this.now.innerHTML = armedOrPlaying.length
       ? armedOrPlaying.map(({ playlist, sound }) => {
-          const isSoundboard = playlist.mode === CONST.PLAYLIST_MODES.SIMULTANEOUS;
+          const isSoundboard = this.isSoundboard(playlist);
           const key = `${playlist.id}:${sound.id}`;
           const delay = this.loopDelays[key];
           const timerActive = this.timedLoops.has(key);
@@ -1110,7 +1068,6 @@ class SoundSystem {
         toggle.classList.contains("ss-playlist-shuffle") ? "shuffle" : "autoplay",
         toggle.checked
       );
-      this.renderAll();
     });
 
     this.tree.addEventListener("contextmenu", ev => {
@@ -1119,7 +1076,7 @@ class SoundSystem {
       const item = ev.target.closest(".ss-playlist");
       const playlist = item?.dataset.id ? game.playlists.get(item.dataset.id) : null;
 
-      const isSoundboard = playlist?.mode === CONST.PLAYLIST_MODES.SIMULTANEOUS;
+      const isSoundboard = this.isSoundboard(playlist);
 
       this.showContextMenu(ev.clientX, ev.clientY, [
         { label: "➕ Nouvelle playlist", action: () => this.createPlaylist(false) },
@@ -1128,8 +1085,19 @@ class SoundSystem {
         playlist && { 
           label: isSoundboard ? "🎵 Convertir en playlist" : "🎛 Convertir en soundboard",
           action: async () => {
-            const newMode = isSoundboard ? CONST.PLAYLIST_MODES.SEQUENTIAL : CONST.PLAYLIST_MODES.SIMULTANEOUS;
-            await playlist.update({ mode: newMode });
+            if (isSoundboard) {
+              await this.setSoundboard(playlist, false);
+              if (playlist.mode !== CONST.PLAYLIST_MODES.SIMULTANEOUS) {
+                await playlist.update({ mode: CONST.PLAYLIST_MODES.SIMULTANEOUS });
+              }
+            } else {
+              await this.setSoundboard(playlist, true);
+              if (playlist.mode !== CONST.PLAYLIST_MODES.SIMULTANEOUS) {
+                await playlist.update({ mode: CONST.PLAYLIST_MODES.SIMULTANEOUS });
+              }
+            }
+            this.shufflePlaylists.delete(playlist.id);
+            this.savePlaylistFlags(SOUND_SYSTEM_SHUFFLE_PLAYLISTS_KEY, this.shufflePlaylists);
             ui.notifications?.info(isSoundboard ? "Converti en playlist" : "Converti en soundboard");
             this.renderAll();
           }
@@ -1713,12 +1681,12 @@ class SoundSystem {
 
     if (!name) return;
 
-    await Playlist.create({
+    const playlist = await Playlist.create({
       name,
-      mode: soundboard
-        ? CONST.PLAYLIST_MODES.SIMULTANEOUS
-        : CONST.PLAYLIST_MODES.SEQUENTIAL
+      mode: CONST.PLAYLIST_MODES.SIMULTANEOUS
     });
+
+    if (playlist) await this.setSoundboard(playlist, soundboard);
 
     this.renderAll();
   }
@@ -2383,8 +2351,8 @@ class SoundSystem {
       <form class="ss-multi-import">
         <p class="notes">Dossier: ${this.escape(directory || "/")}</p>
         <div class="ss-multi-import-actions">
-          <button type="button" data-action="select-all">Tout sÃ©lectionner</button>
-          <button type="button" data-action="select-none">Tout dÃ©sÃ©lectionner</button>
+          <button type="button" data-action="select-all">Tout sélectionner</button>
+          <button type="button" data-action="select-none">Tout désélectionner</button>
         </div>
         <div class="ss-multi-import-list">
           ${items}
@@ -2401,7 +2369,7 @@ class SoundSystem {
       };
 
       new Dialog({
-        title: "SÃ©lectionner les sons Ã  importer",
+        title: "Sélectionner les sons à importer",
         content,
         buttons: {
           import: {
@@ -2659,8 +2627,13 @@ Hooks.once("ready", () => {
     open: () => SoundSystem.open()
   };
 
-  Hooks.on("updatePlaylist", () => SoundSystem.instance?.renderAll());
-  Hooks.on("playPlaylistSound", sound => SoundSystem.instance?.bindNaturalEnd(sound));
+  Hooks.on("updatePlaylist", playlist => {
+    const instance = SoundSystem.instance;
+    if (instance?.isSoundboard(playlist) && playlist.mode !== CONST.PLAYLIST_MODES.SIMULTANEOUS) {
+      playlist.update({ mode: CONST.PLAYLIST_MODES.SIMULTANEOUS }).catch(() => {});
+    }
+    instance?.renderAll();
+  });
   Hooks.on("updatePlaylistSound", () => SoundSystem.instance?.renderAll());
   Hooks.on("createPlaylistSound", () => SoundSystem.instance?.renderAll());
   Hooks.on("deletePlaylistSound", sound => {
