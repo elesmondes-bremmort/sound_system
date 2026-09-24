@@ -524,6 +524,18 @@
   text-overflow: ellipsis;
 }
 
+#sound-system .ss-now-title {
+  cursor: pointer;
+  color: #fff3cf;
+}
+
+#sound-system .ss-now-title:hover,
+#sound-system .ss-now-title:focus {
+  color: var(--ss-accent);
+  text-decoration: underline;
+  outline: none;
+}
+
 #sound-system .ss-sub {
   font-size: 11px;
   opacity: 0.65;

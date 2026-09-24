@@ -585,6 +585,22 @@ class SoundSystem {
     this.renderAll();
   }
 
+  goToPlaylist(playlistId) {
+    const playlist = game.playlists.get(playlistId);
+    if (!playlist) return;
+
+    this.playlistFilter = "all";
+    this.selectedPlaylistId = playlist.id;
+    this.saveSelectedPlaylistId();
+    this.selectedSoundKeys.clear();
+    this.lastSelectedIndex = -1;
+    this.renderAll();
+
+    const playlistRow = Array.from(this.tree.querySelectorAll(".ss-playlist[data-id]"))
+      .find(row => row.dataset.id === playlist.id);
+    playlistRow?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+
   async reorderPlaylists(sourceId, targetId, below) {
     const order = this.getFoundryPlaylistOrder().map(playlist => playlist.id);
     const sourceIndex = order.indexOf(sourceId);
@@ -801,7 +817,7 @@ class SoundSystem {
           ${isSoundboard ? `<button class="ss-btn timer ${timerActive ? "active" : ""}" title="Timer">${timerActive ? `⏱ ${delay}s` : (delay ? `⏱ ${delay}s` : `⏱`)}</button>` : ""}
 
           <div>
-            <div class="ss-name">${status}${this.escape(sound.name)}</div>
+            <div class="ss-name ss-now-title" role="button" tabindex="0" title="Ouvrir la playlist" data-playlist="${playlist.id}">${status}${this.escape(sound.name)}</div>
             <div class="ss-sub">${this.escape(playlist.name)}</div>
             <input class="volume" type="range" min="0" max="1" step="0.05" value="${sound.volume ?? 0.5}" />
           </div>
@@ -1336,6 +1352,12 @@ class SoundSystem {
     });
 
     this.now.addEventListener("click", async ev => {
+      const nowTitle = ev.target.closest(".ss-now-title");
+      if (nowTitle) {
+        this.goToPlaylist(nowTitle.dataset.playlist);
+        return;
+      }
+
       const remotePanel = ev.target.closest(".ss-remote-panel");
       if (remotePanel) {
         const playlist = game.playlists.get(remotePanel.dataset.playlist);
