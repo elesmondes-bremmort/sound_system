@@ -572,14 +572,16 @@ class SoundSystem {
     this.renderAll();
   }
 
-  async stopOtherMusicPlaylists(targetPlaylist) {
-    const otherPlaylists = game.playlists.contents.filter(playlist => {
-      if (playlist.id === targetPlaylist.id || this.isSoundboard(playlist)) return false;
-      return playlist.playing || playlist.sounds.contents.some(sound => sound.playing);
-    });
+  async stopOtherMusicSounds(targetPlaylist, targetSound) {
+    for (const playlist of game.playlists.contents) {
+      if (this.isSoundboard(playlist)) continue;
 
-    for (const playlist of otherPlaylists) {
-      await playlist.stopAll().catch(() => {});
+      for (const sound of playlist.sounds.contents) {
+        if (!sound.playing) continue;
+        if (playlist.id === targetPlaylist.id && sound.id === targetSound.id) continue;
+
+        await playlist.stopSound(sound).catch(() => {});
+      }
     }
   }
 
@@ -589,7 +591,7 @@ class SoundSystem {
     this.musicPlaybackChain = this.musicPlaybackChain
       .catch(() => {})
       .then(async () => {
-        if (!this.isSoundboard(playlist)) await this.stopOtherMusicPlaylists(playlist);
+        if (!this.isSoundboard(playlist)) await this.stopOtherMusicSounds(playlist, sound);
         return playlist.playSound(sound);
       });
 
@@ -600,7 +602,7 @@ class SoundSystem {
     this.musicPlaybackChain = this.musicPlaybackChain
       .catch(() => {})
       .then(async () => {
-        if (!this.isSoundboard(playlist)) await this.stopOtherMusicPlaylists(playlist);
+        if (!this.isSoundboard(playlist)) await this.stopOtherMusicSounds(playlist, sound);
         if (typeof playlist.playNext === "function") {
           return playlist.playNext(sound?.id, { direction });
         }
@@ -650,7 +652,6 @@ class SoundSystem {
       if (nextIndex >= sounds.length) nextIndex = 0;
     }
 
-    await playlist.stopSound(sound).catch(() => {});
     await this.playSoundFromSoundSystem(playlist, sounds[nextIndex]).catch(() => {});
     this.renderAll();
   }
