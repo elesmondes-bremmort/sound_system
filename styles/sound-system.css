@@ -265,12 +265,18 @@
   cursor: pointer;
   border-radius: 5px;
   margin-bottom: 3px;
-  border: 1px solid transparent;
+  border: 1px solid color-mix(in srgb, var(--playlist-color, #8b6f3d) 42%, transparent);
+  background: color-mix(in srgb, var(--playlist-color, #8b6f3d) 12%, #1b1814);
+  transition: background 0.15s ease, border-color 0.15s ease;
 }
 
-#sound-system .ss-playlist:hover,
+#sound-system .ss-playlist:hover {
+  background: color-mix(in srgb, var(--playlist-color, #8b6f3d) 22%, #1b1814);
+  border-color: var(--playlist-color, #8b6f3d);
+}
+
 #sound-system .ss-playlist.active {
-  background: color-mix(in srgb, var(--playlist-color) 28%, #1b1814);
+  background: color-mix(in srgb, var(--playlist-color, #8b6f3d) 34%, #1b1814);
   border-color: var(--playlist-color);
 }
 
