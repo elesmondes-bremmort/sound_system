@@ -505,6 +505,10 @@ class SoundSystem {
       if (checked) this.shufflePlaylists.add(playlistId);
       else this.shufflePlaylists.delete(playlistId);
       this.savePlaylistFlags(SOUND_SYSTEM_SHUFFLE_PLAYLISTS_KEY, this.shufflePlaylists);
+      if (playlist.mode !== CONST.PLAYLIST_MODES.SIMULTANEOUS && playlist.mode === CONST.PLAYLIST_MODES.SHUFFLE) {
+        await playlist.update({ mode: CONST.PLAYLIST_MODES.SEQUENTIAL });
+      }
+      this.renderAll();
       return;
     }
 
@@ -513,6 +517,8 @@ class SoundSystem {
       if (checked) this.autoplayPlaylists.add(playlistId);
       else this.autoplayPlaylists.delete(playlistId);
       this.saveAutoplayPlaylists();
+      if (!checked && playlist.playing) await playlist.update({ playing: false });
+      this.renderAll();
       return;
     }
   }
@@ -1460,11 +1466,11 @@ class SoundSystem {
       this.renderAll();
     });
 
-    this.playingTitle.addEventListener("change", ev => {
+    this.playingTitle.addEventListener("change", async ev => {
       const toggle = ev.target.closest(".ss-shuffle-toggle, .ss-autoplay-toggle");
       if (!toggle) return;
 
-      this.updatePlaylistOption(
+      await this.updatePlaylistOption(
         toggle.dataset.id,
         toggle.classList.contains("ss-shuffle-toggle") ? "shuffle" : "autoplay",
         toggle.checked
