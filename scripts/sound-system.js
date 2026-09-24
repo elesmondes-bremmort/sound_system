@@ -508,9 +508,25 @@ class SoundSystem {
 
     if (option === "shuffle") {
       if (this.isSoundboard(playlist)) return;
+      console.debug("[Sound System][Shuffle] update", {
+        playlist: playlist.name,
+        playlistId,
+        checked,
+        mode: playlist.mode,
+        autoplay: this.isAutoplayEnabled(playlist),
+        beforePreference: this.shufflePlaylists.has(playlistId)
+      });
       if (checked) this.shufflePlaylists.add(playlistId);
       else this.shufflePlaylists.delete(playlistId);
       this.savePlaylistFlags(SOUND_SYSTEM_SHUFFLE_PLAYLISTS_KEY, this.shufflePlaylists);
+      console.debug("[Sound System][Shuffle] persisted", {
+        playlistId,
+        preference: this.shufflePlaylists.has(playlistId),
+        localStorage: localStorage.getItem(SOUND_SYSTEM_SHUFFLE_PLAYLISTS_KEY),
+        mode: playlist.mode,
+        autoplay: this.isAutoplayEnabled(playlist),
+        computed: this.isShuffleEnabled(playlist)
+      });
       if (this.isAutoplayEnabled(playlist)) {
         const targetMode = checked ? CONST.PLAYLIST_MODES.SHUFFLE : CONST.PLAYLIST_MODES.SEQUENTIAL;
         if (playlist.mode !== targetMode) await playlist.update({ mode: targetMode });
@@ -1504,6 +1520,14 @@ class SoundSystem {
     this.playingTitle.addEventListener("change", async ev => {
       const toggle = ev.target.closest(".ss-shuffle-toggle, .ss-autoplay-toggle");
       if (!toggle) return;
+
+      if (toggle.classList.contains("ss-shuffle-toggle")) {
+        console.debug("[Sound System][Shuffle] change", {
+          playlistId: toggle.dataset.id,
+          checked: toggle.checked,
+          connected: toggle.isConnected
+        });
+      }
 
       await this.updatePlaylistOption(
         toggle.dataset.id,
