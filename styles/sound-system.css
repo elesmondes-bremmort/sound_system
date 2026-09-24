@@ -77,6 +77,35 @@
   cursor: pointer;
 }
 
+#sound-system .ss-refresh-playlists {
+  background: rgba(209, 178, 80, 0.12);
+}
+
+#sound-system .ss-playlist-filter {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid rgba(139, 111, 61, 0.7);
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+#sound-system .ss-playlist-filter-button {
+  padding: 4px 3px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #c8b996;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+#sound-system .ss-playlist-filter-button.active {
+  background: rgba(255, 215, 0, 0.16);
+  color: #fff3cf;
+}
+
 #sound-system .ss-view-toggle {
   display: flex;
   gap: 5px;
@@ -196,6 +225,38 @@
 #sound-system .ss-playlist:hover,
 #sound-system .ss-playlist.active {
   background: rgba(255, 255, 255, 0.1);
+}
+
+#sound-system .ss-playlist-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px;
+}
+
+#sound-system .ss-playlist-controls {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 4px;
+  opacity: 0.75;
+}
+
+#sound-system .ss-playlist-controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+#sound-system .ss-playlist-controls input {
+  margin: 0;
+  accent-color: #d1b250;
+  cursor: pointer;
+}
+
+#sound-system .ss-playlist-controls input:disabled {
+  cursor: not-allowed;
 }
 
 #sound-system .ss-playlist.drag-target {

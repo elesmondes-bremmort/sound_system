@@ -32,6 +32,8 @@ class SoundSystem {
     this.resizeObserver = null;
     this.position = this.loadPosition();
     this.viewMode = this.loadViewMode();
+    this.playlistFilter = "all";
+    this.playlistOrder = [];
     this.timedLoops = SoundSystem.timedLoops; // key -> intervalId
     this.loopDelays = this.loadLoopDelays();
     this.importMultipleDialog = null;
@@ -351,6 +353,7 @@ class SoundSystem {
 
   renderAll() {
     this.normalizeSelectedPlaylist();
+    this.playlistOrder = this.getFoundryPlaylistOrder();
     this.renderTree();
     this.renderResults();
     this.renderPresets();
@@ -375,6 +378,7 @@ class SoundSystem {
   renderTree() {
     const selectedPlaylist = this.getSelectedPlaylist();
     const isSoundboard = !!selectedPlaylist && selectedPlaylist.mode === CONST.PLAYLIST_MODES.SIMULTANEOUS;
+    const playlists = this.getVisiblePlaylists();
 
     this.tree.innerHTML = `
       <div class="ss-tree-actions">
@@ -383,6 +387,12 @@ class SoundSystem {
         <button class="ss-import-sound">Importer un son</button>
         <button class="ss-import-multiple-sounds">Importer plusieurs sons</button>
         <button class="ss-open-opus">🎧 Opus</button>
+        <button class="ss-refresh-playlists" title="Relire l'ordre des playlists dans Foundry">↻ Rafraîchir l'ordre</button>
+        <div class="ss-playlist-filter" role="group" aria-label="Filtrer les playlists">
+          <button class="ss-playlist-filter-button ${this.playlistFilter === "all" ? "active" : ""}" data-filter="all">Toutes</button>
+          <button class="ss-playlist-filter-button ${this.playlistFilter === "playlists" ? "active" : ""}" data-filter="playlists">Playlists</button>
+          <button class="ss-playlist-filter-button ${this.playlistFilter === "soundboards" ? "active" : ""}" data-filter="soundboards">Soundboards</button>
+        </div>
         ${isSoundboard ? `
           <div class="ss-view-toggle">
             <button class="ss-view-mode ${this.viewMode === "list" ? "active" : ""}" data-mode="list">📋 Liste</button>
@@ -395,13 +405,60 @@ class SoundSystem {
         📚 Toutes les playlists
       </div>
 
-      ${game.playlists.contents.map(p => `
+      ${playlists.map(p => `
         <div class="ss-playlist ${this.selectedPlaylistId === p.id ? "active" : ""}" data-id="${p.id}">
-          🎵 ${this.escape(p.name)}
+          <div class="ss-playlist-heading">
+            <span>${p.mode === CONST.PLAYLIST_MODES.SIMULTANEOUS ? "🎛" : "🎵"} ${this.escape(p.name)}</span>
+            <span class="ss-playlist-controls">
+              <label title="Lecture aléatoire">
+                <input class="ss-playlist-shuffle" type="checkbox" data-id="${p.id}" ${p.mode === CONST.PLAYLIST_MODES.SHUFFLE ? "checked" : ""} ${p.mode === CONST.PLAYLIST_MODES.SIMULTANEOUS ? "disabled" : ""} />
+                🔀
+              </label>
+              <label title="Lecture automatique">
+                <input class="ss-playlist-autoplay" type="checkbox" data-id="${p.id}" ${p.playing ? "checked" : ""} />
+                ▶
+              </label>
+            </span>
+          </div>
           <div class="ss-sub">${p.sounds.size} piste${p.sounds.size > 1 ? "s" : ""}</div>
         </div>
       `).join("")}
     `;
+  }
+
+  getFoundryPlaylistOrder() {
+    return game.playlists.contents.slice().sort((a, b) => {
+      const sortDifference = Number(a.sort ?? 0) - Number(b.sort ?? 0);
+      return sortDifference || a.name.localeCompare(b.name);
+    });
+  }
+
+  getVisiblePlaylists() {
+    return this.playlistOrder.filter(playlist => {
+      if (this.playlistFilter === "playlists") return playlist.mode !== CONST.PLAYLIST_MODES.SIMULTANEOUS;
+      if (this.playlistFilter === "soundboards") return playlist.mode === CONST.PLAYLIST_MODES.SIMULTANEOUS;
+      return true;
+    });
+  }
+
+  async updatePlaylistOption(playlistId, option, checked) {
+    const playlist = game.playlists.get(playlistId);
+    if (!playlist) return;
+
+    if (option === "shuffle") {
+      await playlist.update({
+        mode: checked ? CONST.PLAYLIST_MODES.SHUFFLE : CONST.PLAYLIST_MODES.SEQUENTIAL
+      });
+      return;
+    }
+
+    if (option === "autoplay") await playlist.update({ playing: checked });
+  }
+
+  refreshPlaylistOrder() {
+    this.playlistOrder = this.getFoundryPlaylistOrder();
+    this.renderTree();
+    ui.notifications?.info("Ordre des playlists relu depuis Foundry.");
   }
 
   getFilteredEntries() {
@@ -765,6 +822,20 @@ class SoundSystem {
     });
 
     this.tree.addEventListener("click", async ev => {
+      if (ev.target.closest(".ss-playlist-shuffle, .ss-playlist-autoplay")) return;
+
+      if (ev.target.classList.contains("ss-refresh-playlists")) {
+        this.refreshPlaylistOrder();
+        return;
+      }
+
+      const filterButton = ev.target.closest(".ss-playlist-filter-button");
+      if (filterButton) {
+        this.playlistFilter = filterButton.dataset.filter || "all";
+        this.renderTree();
+        return;
+      }
+
       if (ev.target.classList.contains("ss-create-playlist")) {
         await this.createPlaylist(false);
         return;
@@ -803,6 +874,18 @@ class SoundSystem {
       this.saveSelectedPlaylistId();
       this.selectedSoundKeys.clear();
       this.lastSelectedIndex = -1;
+      this.renderAll();
+    });
+
+    this.tree.addEventListener("change", async ev => {
+      const toggle = ev.target.closest(".ss-playlist-shuffle, .ss-playlist-autoplay");
+      if (!toggle) return;
+
+      await this.updatePlaylistOption(
+        toggle.dataset.id,
+        toggle.classList.contains("ss-playlist-shuffle") ? "shuffle" : "autoplay",
+        toggle.checked
+      );
       this.renderAll();
     });
 
