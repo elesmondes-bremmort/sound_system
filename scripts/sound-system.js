@@ -39,6 +39,7 @@ class SoundSystem {
     this.autoplayPlaylists = this.loadAutoplayPlaylists();
     this.shufflePlaylists = this.loadPlaylistFlags(SOUND_SYSTEM_SHUFFLE_PLAYLISTS_KEY);
     this.boundEndedSounds = new WeakSet();
+    this.remoteUpdateInterval = null;
     this.timedLoops = SoundSystem.timedLoops; // key -> intervalId
     this.loopDelays = this.loadLoopDelays();
     this.importMultipleDialog = null;
@@ -367,6 +368,7 @@ class SoundSystem {
 
     this.activateListeners();
     this.renderAll();
+    this.remoteUpdateInterval = setInterval(() => this.updateRemoteControls(), 250);
     this.search.focus();
   }
 
@@ -376,6 +378,11 @@ class SoundSystem {
     if (this.resizeObserver) {
       this.resizeObserver.disconnect();
       this.resizeObserver = null;
+    }
+
+    if (this.remoteUpdateInterval) {
+      clearInterval(this.remoteUpdateInterval);
+      this.remoteUpdateInterval = null;
     }
 
     document.getElementById(SOUND_SYSTEM_ID)?.remove();
@@ -557,10 +564,24 @@ class SoundSystem {
   getAudioElement(sound) {
     const audio = sound?.sound;
     if (!audio) return null;
-    if (typeof audio.currentTime === "number") return audio;
-    if (typeof audio.source?.currentTime === "number") return audio.source;
-    if (typeof audio.element?.currentTime === "number") return audio.element;
-    if (typeof audio.audio?.currentTime === "number") return audio.audio;
+
+    const candidates = [
+      audio,
+      audio.element,
+      audio.source,
+      audio.audio,
+      audio.node,
+      audio.sourceNode
+    ].filter(Boolean);
+
+    for (const candidate of candidates) {
+      if (
+        typeof candidate.currentTime === "number" ||
+        typeof candidate.seek === "function" ||
+        typeof candidate.duration === "number"
+      ) return candidate;
+    }
+
     return null;
   }
 
@@ -578,8 +599,47 @@ class SoundSystem {
 
   seekSound(sound, value) {
     const audio = this.getAudioElement(sound);
-    if (!audio || !Number.isFinite(audio.duration)) return;
-    audio.currentTime = Math.max(0, Math.min(Number(value), audio.duration));
+    if (!audio) return;
+
+    const duration = this.getSoundDuration(sound);
+    const position = Math.max(0, Math.min(Number(value), duration || Number(value)));
+    try {
+      if (typeof audio.seek === "function") {
+        audio.seek(position);
+        return;
+      }
+      if (typeof audio.currentTime === "number") audio.currentTime = position;
+    } catch (error) {
+      console.warn("sound_system: unable to seek audio", error);
+    }
+  }
+
+  getSoundCurrentTime(sound) {
+    const audio = this.getAudioElement(sound);
+    if (!audio) return 0;
+    if (typeof audio.currentTime === "number") return audio.currentTime;
+    if (typeof audio.position === "number") return audio.position;
+    if (typeof audio.getPosition === "function") return Number(audio.getPosition()) || 0;
+    return 0;
+  }
+
+  updateRemoteControls() {
+    if (!this.now || !document.body.contains(this.now)) return;
+
+    this.now.querySelectorAll(".ss-now-row").forEach(row => {
+      try {
+        const { sound } = this.getRowData(row);
+        const seek = row.querySelector(".ss-remote-seek");
+        if (!sound || !seek || document.activeElement === seek) return;
+
+        const currentTime = this.getSoundCurrentTime(sound);
+        seek.value = String(currentTime);
+        const timeLabel = row.querySelector(".ss-remote-time");
+        if (timeLabel) timeLabel.textContent = `${this.formatTime(currentTime)} / ${this.formatTime(Number(seek.dataset.duration))}`;
+      } catch (error) {
+        console.warn("sound_system: unable to update remote controls", error);
+      }
+    });
   }
 
   refreshPlaylistOrder() {
@@ -657,8 +717,7 @@ class SoundSystem {
             const delay = this.loopDelays[key];
             const timerActive = this.timedLoops.has(key);
             const duration = this.getSoundDuration(sound);
-            const audio = this.getAudioElement(sound);
-            const currentTime = audio?.currentTime ?? 0;
+            const currentTime = this.getSoundCurrentTime(sound);
             return `
               <div class="ss-pad ${sound.playing ? "playing" : ""} ${timerActive ? "timed-active" : ""} ${isSelected ? "selected" : ""}" draggable="true" data-playlist="${playlist.id}" data-sound="${sound.id}" data-index="${idx}">
                 <div class="ss-pad-label">${sound.playing ? "🟢 " : ""}${this.escape(sound.name)}</div>
@@ -676,8 +735,7 @@ class SoundSystem {
             const delay = this.loopDelays[key];
             const timerActive = this.timedLoops.has(key);
             const duration = this.getSoundDuration(sound);
-            const audio = this.getAudioElement(sound);
-            const currentTime = audio?.currentTime ?? 0;
+            const currentTime = this.getSoundCurrentTime(sound);
             return `
               <div class="ss-row ${showTimer ? "has-timer" : ""} ${timerActive ? "timed-active" : ""} ${isSelected ? "selected" : ""}" draggable="true" data-playlist="${playlist.id}" data-sound="${sound.id}" data-index="${idx}">
                 <button class="ss-btn play" title="Jouer">▶</button>
@@ -747,8 +805,7 @@ class SoundSystem {
           const timerActive = this.timedLoops.has(key);
           const status = `${sound.playing ? "🟢 " : ""}${timerActive ? "⏱ " : ""}`;
           const duration = this.getSoundDuration(sound);
-          const audio = this.getAudioElement(sound);
-          const currentTime = audio?.currentTime ?? 0;
+          const currentTime = this.getSoundCurrentTime(sound);
           return `
         <div class="ss-now-row ${isSoundboard ? "has-timer" : ""}" data-playlist="${playlist.id}" data-sound="${sound.id}">
           <button class="ss-btn stop" title="Arrêter">■</button>
