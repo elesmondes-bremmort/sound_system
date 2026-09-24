@@ -56,6 +56,26 @@
   background: rgba(0, 0, 0, 0.18);
 }
 
+#sound-system .ss-playback-options {
+  display: inline-flex;
+  gap: 8px;
+  margin: 7px 0;
+}
+
+#sound-system .ss-playback-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: #f2e4c7;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+#sound-system .ss-playback-options input {
+  margin: 0;
+  accent-color: #d1b250;
+}
+
 #sound-system .ss-presets {
   border-left: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(0, 0, 0, 0.12);
@@ -470,6 +490,41 @@
 
 #sound-system input[type="range"] {
   width: 100%;
+}
+
+#sound-system .ss-remote-controls {
+  display: grid;
+  grid-template-columns: 24px 24px 24px minmax(70px, 1fr) auto;
+  gap: 4px;
+  align-items: center;
+  margin-top: 5px;
+}
+
+#sound-system .ss-transport {
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid #8b6f3d;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #f2e4c7;
+  cursor: pointer;
+}
+
+#sound-system .ss-transport:hover {
+  background: rgba(217, 164, 65, 0.2);
+  border-color: #d1b250;
+}
+
+#sound-system .ss-remote-seek {
+  min-width: 60px;
+  margin: 0;
+}
+
+#sound-system .ss-remote-time {
+  color: #c8b996;
+  font-size: 10px;
+  white-space: nowrap;
 }
 
 #sound-system-launcher {

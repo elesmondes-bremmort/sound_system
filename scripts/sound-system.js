@@ -5,6 +5,8 @@ const SOUND_SYSTEM_VIEW_MODE_KEY = "sound-system-view-mode";
 const SOUND_SYSTEM_LOOP_DELAYS_KEY = "sound-system-loop-delays";
 const SOUND_SYSTEM_SELECTED_PLAYLIST_KEY = "sound-system-selected-playlist";
 const SOUND_SYSTEM_ACTIVE_TIMERS_KEY = "sound-system-active-timers";
+const SOUND_SYSTEM_AUTOPLAY_PLAYLISTS_KEY = "sound-system-autoplay-playlists";
+const SOUND_SYSTEM_SHUFFLE_PLAYLISTS_KEY = "sound-system-shuffle-playlists";
 const SOUND_SYSTEM_PRESETS_SETTING = "presets";
 const SOUND_SYSTEM_AUDIO_EXTENSIONS = new Set(["mp3", "ogg", "wav", "flac", "m4a", "webm"]);
 
@@ -34,6 +36,9 @@ class SoundSystem {
     this.viewMode = this.loadViewMode();
     this.playlistFilter = "all";
     this.playlistOrder = [];
+    this.autoplayPlaylists = this.loadAutoplayPlaylists();
+    this.shufflePlaylists = this.loadPlaylistFlags(SOUND_SYSTEM_SHUFFLE_PLAYLISTS_KEY);
+    this.boundEndedSounds = new WeakSet();
     this.timedLoops = SoundSystem.timedLoops; // key -> intervalId
     this.loopDelays = this.loadLoopDelays();
     this.importMultipleDialog = null;
@@ -74,6 +79,35 @@ class SoundSystem {
         localStorage.removeItem(SOUND_SYSTEM_SELECTED_PLAYLIST_KEY);
       }
     } catch {}
+  }
+
+  loadAutoplayPlaylists() {
+    try {
+      const ids = JSON.parse(localStorage.getItem(SOUND_SYSTEM_AUTOPLAY_PLAYLISTS_KEY) || "[]");
+      return new Set(Array.isArray(ids) ? ids : []);
+    } catch {
+      return new Set();
+    }
+  }
+
+  saveAutoplayPlaylists() {
+    localStorage.setItem(
+      SOUND_SYSTEM_AUTOPLAY_PLAYLISTS_KEY,
+      JSON.stringify(Array.from(this.autoplayPlaylists))
+    );
+  }
+
+  loadPlaylistFlags(key) {
+    try {
+      const ids = JSON.parse(localStorage.getItem(key) || "[]");
+      return new Set(Array.isArray(ids) ? ids : []);
+    } catch {
+      return new Set();
+    }
+  }
+
+  savePlaylistFlags(key, flags) {
+    localStorage.setItem(key, JSON.stringify(Array.from(flags)));
   }
 
   clearPersistedActiveTimers() {
@@ -409,16 +443,6 @@ class SoundSystem {
         <div class="ss-playlist ${this.selectedPlaylistId === p.id ? "active" : ""}" draggable="true" data-id="${p.id}" data-index="${index}">
           <div class="ss-playlist-heading">
             <span>${p.mode === CONST.PLAYLIST_MODES.SIMULTANEOUS ? "🎛" : "🎵"} ${this.escape(p.name)}</span>
-            <span class="ss-playlist-controls">
-              <label title="Lecture aléatoire">
-                <input class="ss-playlist-shuffle" type="checkbox" data-id="${p.id}" ${p.mode === CONST.PLAYLIST_MODES.SHUFFLE ? "checked" : ""} ${p.mode === CONST.PLAYLIST_MODES.SIMULTANEOUS ? "disabled" : ""} />
-                🔀
-              </label>
-              <label title="Lecture automatique">
-                <input class="ss-playlist-autoplay" type="checkbox" data-id="${p.id}" ${p.playing ? "checked" : ""} />
-                ▶
-              </label>
-            </span>
           </div>
           <div class="ss-sub">${p.sounds.size} piste${p.sounds.size > 1 ? "s" : ""}</div>
         </div>
@@ -446,17 +470,70 @@ class SoundSystem {
     if (!playlist) return;
 
     if (option === "shuffle") {
-      await playlist.update({
-        mode: checked ? CONST.PLAYLIST_MODES.SHUFFLE : CONST.PLAYLIST_MODES.SEQUENTIAL
-      });
+      if (checked) this.shufflePlaylists.add(playlistId);
+      else this.shufflePlaylists.delete(playlistId);
+      this.savePlaylistFlags(SOUND_SYSTEM_SHUFFLE_PLAYLISTS_KEY, this.shufflePlaylists);
       return;
     }
 
     if (option === "autoplay") {
-      if (checked) await playlist.playAll();
-      else await playlist.stopAll();
+      if (playlist.mode === CONST.PLAYLIST_MODES.SIMULTANEOUS) return;
+      if (checked) this.autoplayPlaylists.add(playlistId);
+      else this.autoplayPlaylists.delete(playlistId);
+      this.saveAutoplayPlaylists();
       return;
     }
+  }
+
+  bindNaturalEnd(sound) {
+    const audio = this.getAudioElement(sound);
+    if (!audio || this.boundEndedSounds.has(audio)) return;
+
+    const advance = () => this.advancePlaylist(sound);
+    if (typeof audio.addEventListener === "function") {
+      audio.addEventListener("ended", advance);
+      this.boundEndedSounds.add(audio);
+    } else if (typeof audio.on === "function") {
+      audio.on("end", advance);
+      this.boundEndedSounds.add(audio);
+    }
+  }
+
+  async advancePlaylist(sound) {
+    const playlist = sound?.parent ?? sound?.playlist;
+    if (!playlist || !this.autoplayPlaylists.has(playlist.id)) return;
+    if (playlist.mode === CONST.PLAYLIST_MODES.SIMULTANEOUS) return;
+
+    const sounds = playlist.sounds.contents.slice().sort((a, b) => Number(a.sort ?? 0) - Number(b.sort ?? 0));
+    if (!sounds.length) return;
+
+    let next;
+    if (this.shufflePlaylists.has(playlist.id)) {
+      const candidates = sounds.filter(candidate => candidate.id !== sound.id);
+      next = candidates[Math.floor(Math.random() * candidates.length)];
+    } else {
+      next = sounds[sounds.findIndex(candidate => candidate.id === sound.id) + 1];
+    }
+
+    if (next) await playlist.playSound(next).catch(() => {});
+  }
+
+  getPlaylistSounds(playlist) {
+    return playlist.sounds.contents.slice().sort((a, b) => Number(a.sort ?? 0) - Number(b.sort ?? 0));
+  }
+
+  async playAdjacent(playlist, sound, direction) {
+    const sounds = this.getPlaylistSounds(playlist);
+    const index = sounds.findIndex(candidate => candidate.id === sound.id);
+    if (index < 0 || !sounds.length) return;
+
+    let nextIndex = index + direction;
+    if (nextIndex < 0) nextIndex = sounds.length - 1;
+    if (nextIndex >= sounds.length) nextIndex = 0;
+
+    await playlist.stopSound(sound).catch(() => {});
+    await playlist.playSound(sounds[nextIndex]).catch(() => {});
+    this.renderAll();
   }
 
   async reorderPlaylists(sourceId, targetId, below) {
@@ -645,6 +722,19 @@ class SoundSystem {
     const armedOrPlaying = Array.from(entriesByKey.values());
     this.playingTitle.innerHTML = `<b>En cours / Armés (${armedOrPlaying.length})</b>`;
 
+    const remotePlaylist = this.getSelectedPlaylist() || armedOrPlaying[0]?.playlist;
+    if (remotePlaylist && remotePlaylist.mode !== CONST.PLAYLIST_MODES.SIMULTANEOUS) {
+      this.playingTitle.innerHTML += `
+        <div class="ss-playback-options">
+          <label title="Lecture aléatoire">
+            <input class="ss-shuffle-toggle" type="checkbox" data-id="${remotePlaylist.id}" ${this.shufflePlaylists.has(remotePlaylist.id) ? "checked" : ""} /> 🔀
+          </label>
+          <label title="Enchaîner automatiquement la piste suivante à la fin">
+            <input class="ss-autoplay-toggle" type="checkbox" data-id="${remotePlaylist.id}" ${this.autoplayPlaylists.has(remotePlaylist.id) ? "checked" : ""} /> ⏭
+          </label>
+        </div>`;
+    }
+
     if (armedOrPlaying.length) {
       this.playingTitle.innerHTML += ` <button class="ss-stop-all" title="Tout arrêter">■ Tout arrêter</button>`;
     }
@@ -656,6 +746,9 @@ class SoundSystem {
           const delay = this.loopDelays[key];
           const timerActive = this.timedLoops.has(key);
           const status = `${sound.playing ? "🟢 " : ""}${timerActive ? "⏱ " : ""}`;
+          const duration = this.getSoundDuration(sound);
+          const audio = this.getAudioElement(sound);
+          const currentTime = audio?.currentTime ?? 0;
           return `
         <div class="ss-now-row ${isSoundboard ? "has-timer" : ""}" data-playlist="${playlist.id}" data-sound="${sound.id}">
           <button class="ss-btn stop" title="Arrêter">■</button>
@@ -666,6 +759,13 @@ class SoundSystem {
             <div class="ss-name">${status}${this.escape(sound.name)}</div>
             <div class="ss-sub">${this.escape(playlist.name)}</div>
             <input class="volume" type="range" min="0" max="1" step="0.05" value="${sound.volume ?? 0.5}" />
+            ${duration ? `<div class="ss-remote-controls">
+              <button class="ss-transport previous" title="Piste précédente">⏮</button>
+              <button class="ss-transport pause" title="Pause / reprendre">${sound.playing ? "⏸" : "▶"}</button>
+              <button class="ss-transport next" title="Piste suivante">⏭</button>
+              <input class="ss-remote-seek" type="range" min="0" max="${duration}" step="0.1" value="${currentTime}" data-duration="${duration}" />
+              <span class="ss-remote-time">${this.formatTime(currentTime)} / ${this.formatTime(duration)}</span>
+            </div>` : ""}
           </div>
         </div>
       `;
@@ -1198,6 +1298,27 @@ class SoundSystem {
       const { playlist, sound } = this.getRowData(row);
       if (!playlist || !sound) return;
 
+      if (ev.target.closest(".previous")) {
+        await this.playAdjacent(playlist, sound, -1);
+        return;
+      }
+
+      if (ev.target.closest(".next")) {
+        await this.playAdjacent(playlist, sound, 1);
+        return;
+      }
+
+      if (ev.target.closest(".pause")) {
+        if (sound.playing) {
+          if (typeof playlist.pauseSound === "function") await playlist.pauseSound(sound);
+          else await playlist.stopSound(sound);
+        } else {
+          await playlist.playSound(sound);
+        }
+        this.renderAll();
+        return;
+      }
+
       if (ev.target.classList.contains("stop")) {
         await playlist.stopSound(sound).catch(() => {});
         this.stopTimedLoop(playlist, sound);
@@ -1223,6 +1344,30 @@ class SoundSystem {
       if (!stopAllButton) return;
       await this.stopAllSounds();
       this.renderAll();
+    });
+
+    this.playingTitle.addEventListener("change", ev => {
+      const toggle = ev.target.closest(".ss-shuffle-toggle, .ss-autoplay-toggle");
+      if (!toggle) return;
+
+      this.updatePlaylistOption(
+        toggle.dataset.id,
+        toggle.classList.contains("ss-shuffle-toggle") ? "shuffle" : "autoplay",
+        toggle.checked
+      );
+    });
+
+    this.now.addEventListener("input", ev => {
+      const seek = ev.target.closest(".ss-remote-seek");
+      if (!seek) return;
+
+      const row = seek.closest(".ss-now-row");
+      const { sound } = this.getRowData(row);
+      if (!sound) return;
+
+      this.seekSound(sound, Number(seek.value));
+      const timeLabel = seek.nextElementSibling;
+      if (timeLabel) timeLabel.textContent = `${this.formatTime(Number(seek.value))} / ${this.formatTime(Number(seek.dataset.duration))}`;
     });
 
     this.now.addEventListener("input", async ev => {
@@ -2421,6 +2566,7 @@ Hooks.once("ready", () => {
   };
 
   Hooks.on("updatePlaylist", () => SoundSystem.instance?.renderAll());
+  Hooks.on("playPlaylistSound", sound => SoundSystem.instance?.bindNaturalEnd(sound));
   Hooks.on("updatePlaylistSound", () => SoundSystem.instance?.renderAll());
   Hooks.on("createPlaylistSound", () => SoundSystem.instance?.renderAll());
   Hooks.on("deletePlaylistSound", sound => {
