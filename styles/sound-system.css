@@ -573,26 +573,6 @@
 }
 
 
-#sound-system-launcher {
-  position: fixed;
-  right: 18px;
-  bottom: 220px;
-  z-index: 60;
-  width: 42px;
-  height: 42px;
-  border-radius: 50%;
-  border: 1px solid #8b6f3d;
-  background: rgba(18, 16, 13, 0.95);
-  color: #f2e4c7;
-  font-size: 22px;
-  cursor: pointer;
-  box-shadow: 0 0 12px #000;
-}
-
-#sound-system-launcher:hover {
-  filter: brightness(1.2);
-}
-
 .ss-context-menu {
   position: fixed;
   z-index: 100020;

@@ -2717,42 +2717,7 @@ Hooks.once("init", () => {
 
 Hooks.once("ready", () => {
   console.log("sound_system: ready hook");
-  if (!game.user.isGM) {
-    console.log("sound_system: not GM, launcher disabled");
-    return;
-  }
-
-  function addLauncher() {
-    try {
-      if (!game.user.isGM) {
-        console.log("sound_system: addLauncher skipped, not GM");
-        return;
-      }
-      document.getElementById("sound-system-launcher")?.remove();
-
-      const button = document.createElement("button");
-      button.id = "sound-system-launcher";
-      button.innerHTML = "🎵";
-      button.title = "Sound System";
-      button.style.position = "fixed";
-      button.style.right = "18px";
-      button.style.bottom = "220px";
-      button.style.zIndex = 60;
-      button.addEventListener("click", () => {
-        console.log("sound_system: launcher clicked");
-        SoundSystem.open();
-      });
-
-      document.body.appendChild(button);
-      console.log("sound_system: launcher appended");
-    } catch (err) {
-      console.error("sound_system: addLauncher error", err);
-    }
-  }
-
-  addLauncher();
-
-  Hooks.on("renderApplication", () => addLauncher());
+  if (!game.user.isGM) return;
 
   game.soundSystem = {
     open: () => SoundSystem.open()
