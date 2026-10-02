@@ -696,16 +696,55 @@ class SoundSystem {
     ui.notifications?.info("Ordre des playlists relu depuis Foundry.");
   }
 
+  normalizeSearchText(value) {
+    return String(value ?? "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
+  }
+
+  matchesSearchTerm(term, text) {
+    if (text.includes(term)) return true;
+
+    const maxDistance = term.length >= 7 ? 2 : term.length >= 4 ? 1 : 0;
+    if (!maxDistance) return false;
+
+    return text.split(/\s+/).some(word => {
+      if (Math.abs(word.length - term.length) > maxDistance) return false;
+
+      let previousRow = Array.from({ length: word.length + 1 }, (_, index) => index);
+      for (let rowIndex = 1; rowIndex <= term.length; rowIndex += 1) {
+        const currentRow = [rowIndex];
+        let rowMinimum = rowIndex;
+
+        for (let columnIndex = 1; columnIndex <= word.length; columnIndex += 1) {
+          const cost = term[rowIndex - 1] === word[columnIndex - 1] ? 0 : 1;
+          const distance = Math.min(
+            previousRow[columnIndex] + 1,
+            currentRow[columnIndex - 1] + 1,
+            previousRow[columnIndex - 1] + cost
+          );
+          currentRow.push(distance);
+          rowMinimum = Math.min(rowMinimum, distance);
+        }
+
+        if (rowMinimum > maxDistance) return false;
+        previousRow = currentRow;
+      }
+
+      return previousRow[word.length] <= maxDistance;
+    });
+  }
+
   getFilteredEntries() {
-    const q = this.search.value.toLowerCase().trim();
+    const query = this.normalizeSearchText(this.search.value.trim());
+    const terms = query.split(/\s+/).filter(Boolean);
 
     return this.allEntries
       .filter(({ playlist, sound }) => {
         const matchPlaylist = !this.selectedPlaylistId || playlist.id === this.selectedPlaylistId;
-        const matchSearch =
-          !q ||
-          sound.name.toLowerCase().includes(q) ||
-          playlist.name.toLowerCase().includes(q);
+        const searchableText = this.normalizeSearchText(`${sound.name} ${playlist.name}`);
+        const matchSearch = terms.every(term => this.matchesSearchTerm(term, searchableText));
 
         return matchPlaylist && matchSearch;
       })
